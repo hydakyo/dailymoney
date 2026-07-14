@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, ClipboardList, ReceiptText, Settings, Home, CirclePlus, WalletCards } from "lucide-react";
 import { decryptBackup, downloadFile, encryptBackup, transactionsCsv, type EncryptedBackup } from "./backup";
 import { db, exportBackup, restoreBackup } from "./db";
@@ -14,7 +14,6 @@ import { useAppStore } from "./store";
 import { HomeView } from "./components/views/HomeView";
 import { TransactionsView } from "./components/views/TransactionsView";
 import { PlansView } from "./components/views/PlansView";
-import { ReportsView, TrendReport } from "./components/views/ReportsView";
 import { SettingsView } from "./components/views/SettingsView";
 import { Onboarding } from "./components/views/Onboarding";
 import { Unlock } from "./components/views/Unlock";
@@ -25,6 +24,9 @@ import { SmartPlanModal } from "./components/modals/SmartPlanModal";
 import { primaryWallet, requirePrimaryWalletId } from "./wallet";
 import { isLegacyTransfer, normalizeEditableTransaction } from "./transaction";
 import { DataRecoveryView } from "./components/views/DataRecoveryView";
+
+const ReportsView = lazy(() => import("./components/views/ReportsView").then(module => ({ default: module.ReportsView })));
+const TrendReport = lazy(() => import("./components/views/ReportsView").then(module => ({ default: module.TrendReport })));
 
 type Tab = "home" | "transactions" | "plans" | "reports" | "settings";
 type PlanSection = "budgets" | "debts" | "goals" | "installments" | "recurring";
@@ -254,7 +256,7 @@ export default function App() {
         {tab === "plans" && (
           <PlansView
             section={planSection}
-            onSection={(val) => setPlanSection(val as any)}
+            onSection={setPlanSection}
             budgets={data.budgets.filter(item => item.month === month).map(b => ({ ...b, category: data.categories.find(c => c.id === b.categoryId)!, spent: data.transactions.filter(t => t.categoryId === b.categoryId && t.date.startsWith(month)).reduce((sum, t) => sum + t.amount, 0) }))}
             categories={data.categories}
             debts={data.debts}
@@ -288,10 +290,10 @@ export default function App() {
           />
         )}
         {tab === "reports" && (
-          <>
+          <Suspense fallback={<main className="loading"><p>Đang tải báo cáo…</p></main>}>
             <ReportsView transactions={data.transactions} categories={categoryMap} month={month} onMonth={setMonth} />
             <TrendReport transactions={data.transactions} month={month} />
-          </>
+          </Suspense>
         )}
         {tab === "settings" && (
           <SettingsView

@@ -1,5 +1,10 @@
 import type { Budget, Category, Debt, DebtPayment, GoalEntry, RecurringOccurrence, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 
+export type BudgetProgressItem = Budget & {
+  spent: number;
+  category?: Category;
+};
+
 export function walletBalance(wallet: Wallet, transactions: Transaction[]) {
   return wallet.initialBalance + transactions.reduce((total, transaction) => {
     if (transaction.walletId === wallet.id) {
@@ -38,7 +43,7 @@ export function categorySpending(transactions: Transaction[], month: string, cat
     .reduce((sum, transaction) => sum + transaction.amount, 0);
 }
 
-export function budgetProgress(budgets: Budget[], transactions: Transaction[], categories: Category[], month: string) {
+export function budgetProgress(budgets: Budget[], transactions: Transaction[], categories: Category[], month: string): BudgetProgressItem[] {
   return budgets.filter(budget => budget.month === month).map(budget => ({
     ...budget,
     spent: categorySpending(transactions, month, budget.categoryId),

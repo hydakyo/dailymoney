@@ -8,6 +8,16 @@ import { db } from "../../db";
 import { Modal } from "../ui/Modal";
 import { AmountInput } from "../ui/AmountInput";
 
+type TransactionFormInput = {
+  id?: string;
+  kind: EditableTransactionKind;
+  amount: number;
+  categoryId: string;
+  date: string;
+  note?: string;
+  recurring?: { frequency: RecurringRule["frequency"]; interval: number; dayOfMonth?: number };
+};
+
 export function TransactionForm({
   transaction,
   categories,
@@ -16,7 +26,7 @@ export function TransactionForm({
 }: {
   transaction?: Transaction;
   categories: Category[];
-  onSubmit: (value: any) => Promise<void>;
+  onSubmit: (value: TransactionFormInput) => Promise<void>;
   onClose: () => void;
 }) {
   const [kind, setKind] = useState<EditableTransactionKind>(transaction?.kind === "income" ? "income" : "expense");
@@ -27,11 +37,14 @@ export function TransactionForm({
   const [recurring, setRecurring] = useState(false);
   const [frequency, setFrequency] = useState<RecurringRule["frequency"]>("monthly");
   
-  const relevant = categories.filter(category => category.kind === kind && !category.archived);
+  const relevant = React.useMemo(
+    () => categories.filter(category => category.kind === kind && !category.archived),
+    [categories, kind]
+  );
   
   React.useEffect(() => {
     if (!transaction) setCategoryId(relevant[0]?.id ?? "");
-  }, [kind, transaction]);
+  }, [relevant, transaction]);
 
   return (
     <Modal title={transaction ? "Sửa giao dịch" : "Ghi giao dịch"} onClose={onClose}>
@@ -83,11 +96,12 @@ export function BudgetForm({ categories, month, onSubmit, onClose }: { categorie
   const expenses = categories.filter(category => category.kind === "expense" && !category.archived);
   const [categoryId, setCategoryId] = useState(expenses[0]?.id ?? "");
   const [amount, setAmount] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(month);
   return (
     <Modal title="Đặt ngân sách" onClose={onClose}>
       <label className="field">
         <span>Tháng</span>
-        <input type="month" defaultValue={month} id="budget-month" />
+        <input type="month" value={selectedMonth} onChange={event => setSelectedMonth(event.target.value)} />
       </label>
       <label className="field">
         <span>Danh mục</span>
@@ -97,8 +111,7 @@ export function BudgetForm({ categories, month, onSubmit, onClose }: { categorie
       </label>
       <AmountInput label="Giới hạn chi" value={amount} onChange={setAmount} />
       <button className="primary full" disabled={!amount} onClick={() => {
-        const monthValue = (document.getElementById("budget-month") as HTMLInputElement).value;
-        void onSubmit({ categoryId, month: monthValue, limit: Number(amount) });
+        void onSubmit({ categoryId, month: selectedMonth, limit: Number(amount) });
       }}>Lưu ngân sách</button>
     </Modal>
   );

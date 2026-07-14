@@ -1,8 +1,8 @@
-import React from "react";
 import { Plus, Trash2, Landmark, HandCoins, Goal, CalendarDays, Smartphone } from "lucide-react";
 import type { Category, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal } from "../../domain";
 import { formatVnd } from "../../domain";
 import { debtOutstanding, goalBalance } from "../../finance";
+import type { BudgetProgressItem } from "../../finance";
 import { Card } from "../ui/Card";
 import type { AppData } from "../../store";
 
@@ -32,7 +32,7 @@ export function PlansView({
 }: {
   section: PlanSection;
   onSection: (value: PlanSection) => void;
-  budgets: any[];
+  budgets: BudgetProgressItem[];
   categories: Category[];
   debts: Debt[];
   payments: AppData["payments"];
@@ -89,7 +89,7 @@ export function PlansView({
 
       {section === "budgets" && (
         <div className="stack">
-          <div className="card advisor-banner" style={{ background: "linear-gradient(to right, #6d5dfc, #8b5cf6)", color: "white", cursor: "pointer", padding: "16px" }} onClick={onSmartPlan}>
+          <button className="card advisor-banner" style={{ background: "linear-gradient(to right, #6d5dfc, #8b5cf6)", color: "white", padding: "16px" }} onClick={onSmartPlan}>
             <div className="row-between" style={{ alignItems: "center" }}>
               <div>
                 <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px" }}>
@@ -99,7 +99,7 @@ export function PlansView({
               </div>
               <Plus size={24} />
             </div>
-          </div>
+          </button>
 
           {budgets.length ? (
             budgets.map(item => (

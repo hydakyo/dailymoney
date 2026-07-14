@@ -7,6 +7,10 @@ import { addMonths, monthLabel } from "../../utils";
 import { monthTotals } from "../../finance";
 import { Card } from "../ui/Card";
 
+function formatTooltipValue(value: unknown) {
+  return formatVnd(typeof value === "number" ? value : Number(value) || 0);
+}
+
 export function TrendReport({ transactions, month }: { transactions: Transaction[]; month: string }) {
   const rows = Array.from({ length: 6 }, (_, index) => {
     const value = addMonths(month, index - 5);
@@ -33,7 +37,7 @@ export function TrendReport({ transactions, month }: { transactions: Transaction
               axisLine={false} tickLine={false}
             />
             <Tooltip 
-              formatter={(value: any) => formatVnd(value)}
+              formatter={formatTooltipValue}
               contentStyle={{ background: 'var(--bg-card)', borderColor: 'var(--border)', borderRadius: '8px' }}
             />
             <Bar dataKey="income" name="Thu" fill="var(--success)" radius={[6, 6, 0, 0]} />
@@ -125,7 +129,7 @@ export function ReportsView({
                   <XAxis type="number" hide />
                   <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 12, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
                   <Tooltip
-                    formatter={(value: any) => formatVnd(value)}
+                    formatter={formatTooltipValue}
                     cursor={{ fill: "var(--brand-light)" }}
                     contentStyle={{ background: 'var(--bg-card)', borderColor: 'var(--border)', borderRadius: '8px' }}
                   />
@@ -153,7 +157,7 @@ export function ReportsView({
                     ))}
                   </Pie>
                   <Tooltip 
-                    formatter={(value: any) => formatVnd(value)}
+                    formatter={formatTooltipValue}
                     contentStyle={{ background: 'var(--bg-card)', borderColor: 'var(--border)', borderRadius: '8px' }}
                   />
                   <Legend 

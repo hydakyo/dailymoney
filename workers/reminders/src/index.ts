@@ -22,12 +22,6 @@ type ReminderRow = {
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 const invalid = (message: string) => json({ error: message }, 400);
 const validTime = (value: unknown): value is string => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-const validSubscription = (value: unknown): value is StoredSubscription => {
-  if (!value || typeof value !== "object") return false;
-  const subscription = value as StoredSubscription;
-  return typeof subscription.endpoint === "string" && subscription.endpoint.startsWith("https://") && typeof subscription.keys?.p256dh === "string" && typeof subscription.keys?.auth === "string";
-};
-
 function vietnamNow() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
   const value = (type: string) => parts.find(part => part.type === type)?.value ?? "00";
@@ -50,12 +44,14 @@ async function sendReminder(env: Env, row: ReminderRow) {
 const ALLOWED_ORIGINS = ["https://dm.kelvin.io.vn", "http://localhost:5173", "http://localhost:4173"];
 
 // Validate subscription more strictly
-function validSubscriptionStrict(sub: any) {
-  if (!sub || typeof sub !== "object") return false;
-  if (typeof sub.endpoint !== "string" || !sub.endpoint.startsWith("https://") || sub.endpoint.length > 2048) return false;
-  if (!sub.keys || typeof sub.keys !== "object") return false;
-  if (typeof sub.keys.p256dh !== "string" || sub.keys.p256dh.length > 256) return false;
-  if (typeof sub.keys.auth !== "string" || sub.keys.auth.length > 128) return false;
+function validSubscriptionStrict(value: unknown): value is StoredSubscription {
+  if (!value || typeof value !== "object") return false;
+  const subscription = value as { endpoint?: unknown; keys?: unknown };
+  if (typeof subscription.endpoint !== "string" || !subscription.endpoint.startsWith("https://") || subscription.endpoint.length > 2048) return false;
+  if (!subscription.keys || typeof subscription.keys !== "object") return false;
+  const keys = subscription.keys as { p256dh?: unknown; auth?: unknown };
+  if (typeof keys.p256dh !== "string" || keys.p256dh.length > 256) return false;
+  if (typeof keys.auth !== "string" || keys.auth.length > 128) return false;
   return true;
 }
 
@@ -84,6 +80,8 @@ async function handleApi(request: Request, env: Env, path: string) {
 
   // Helper to read and limit body size to 8KB
   const readJson = async <T>() => {
+    const contentLength = Number(request.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > 8192) throw new Error("Payload quá lớn");
     const text = await request.text();
     if (text.length > 8192) throw new Error("Payload quá lớn");
     return JSON.parse(text) as T;
@@ -93,7 +91,7 @@ async function handleApi(request: Request, env: Env, path: string) {
     try {
       const body = await readJson<{ subscription?: unknown; time?: unknown }>();
       if (!body || !validSubscriptionStrict(body.subscription) || !validTime(body.time)) return invalid("Subscription hoặc giờ nhắc không hợp lệ.");
-      await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at").bind((body.subscription as any).endpoint, JSON.stringify(body.subscription), body.time).run();
+      await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at").bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time).run();
       return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin } });
     } catch {
       return invalid("Request không hợp lệ.");

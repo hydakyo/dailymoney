@@ -1,4 +1,3 @@
-import React from "react";
 import { ChevronLeft, ChevronRight, TrendingDown, TrendingUp, BellRing, Landmark, CirclePlus } from "lucide-react";
 import type { Category, RecurringRule } from "../../domain";
 import { formatVnd } from "../../domain";
@@ -6,6 +5,7 @@ import { addMonths, monthLabel } from "../../utils";
 import { Card } from "../ui/Card";
 import type { AppData } from "../../store";
 import type { Advice } from "../../advisor";
+import type { BudgetProgressItem } from "../../finance";
 import { AlertCircle, AlertTriangle, CheckCircle, Info } from "lucide-react";
 
 export function HomeView({
@@ -27,7 +27,7 @@ export function HomeView({
   pending: AppData["occurrences"];
   rules: RecurringRule[];
   categories: Map<string, Category>;
-  budgets: any[]; // using any[] for now as it's from ReturnType<typeof budgetProgress>
+  budgets: BudgetProgressItem[];
   advices: Advice[];
   onAdd: () => void;
   onPending: (id: string, skip?: boolean) => void;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import "fake-indexeddb/auto";
 import { decryptBackup, encryptBackup } from "./backup";
-import type { BackupPayloadV1, BackupPayloadV2, BackupPayloadV3 } from "./domain";
+import type { BackupPayload, BackupPayloadV1, BackupPayloadV2, BackupPayloadV3 } from "./domain";
 
 const settings = { id: "settings" as const, onboardingComplete: true, openingBalance: 0, currency: "VND" as const, lockEnabled: false, createdAt: "", updatedAt: "" };
 
@@ -88,7 +88,7 @@ describe("E2E Restore", () => {
     const restored = await exportBackup();
 
     // Normalize timestamps (exportedAt will be different)
-    const normalize = (payload: any) => ({ ...payload, exportedAt: undefined });
+    const normalize = (payload: BackupPayload) => ({ ...payload, exportedAt: undefined });
     expect(normalize(restored)).toEqual(normalize(original));
   });
 });

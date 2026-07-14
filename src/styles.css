@@ -115,6 +115,10 @@ button:disabled {
 button:active:not(:disabled) {
   transform: scale(0.97);
 }
+button:focus-visible, a:focus-visible {
+  outline: 3px solid var(--brand-primary);
+  outline-offset: 3px;
+}
 
 .app-shell {
   min-height: 100dvh;
@@ -553,6 +557,7 @@ button:active:not(:disabled) {
 
 .modal-head { margin-bottom: 18px; }
 .modal-head h2 { font-size: 20px; margin: 0; }
+.advisor-banner { width: 100%; text-align: left; }
 
 .field {
   display: grid;
