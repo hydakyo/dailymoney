@@ -46,6 +46,14 @@ describe("adaptive smart plan", () => {
     expect(plan.scenarios.map(scenario => scenario.id)).toEqual(["base", "cautious", "rescue"]);
     expect(plan.scenarios[1].endingBalance).toBeLessThan(plan.scenarios[0].endingBalance);
     expect(plan.upcomingObligations[0]).toMatchObject({ priority: "high", priorityLabel: "Cao" });
+    expect(food).toMatchObject({ spent: 0, fixedRemaining: 1_000_000 });
+    expect(food?.flexibleRemaining).toBeGreaterThan(0);
+    const paymentDay = plan.dailyPlan.find(day => day.date === "2026-07-20");
+    expect(paymentDay).toMatchObject({ fixedExpense: 1_500_000, flexibleCap: plan.dailyFlexibleCap });
+    expect(paymentDay?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Giao dịch lặp", amount: -1_000_000 }),
+      expect.objectContaining({ label: "Trả góp: Phone", amount: -500_000 })
+    ]));
   });
 
   it("creates an urgent recovery plan when cash is short before a later income arrives", () => {

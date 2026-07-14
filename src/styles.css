@@ -831,6 +831,14 @@ button:focus-visible, a:focus-visible {
 .scenario-card.selected { border: 2px solid var(--brand-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-primary) 14%, transparent); }
 .scenario-card span, .scenario-card small { color: var(--text-muted); font-size: 12px; line-height: 1.35; }
 .scenario-card b { font-size: 15px; }
+.cash-flow-calendar { display: grid; gap: 8px; }
+.smart-plan-day { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-card); padding: 10px 12px; display: grid; gap: 5px; }
+.smart-plan-day.at-risk { border-color: var(--danger); background: var(--danger-bg); }
+.smart-plan-day-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--text-muted); font-size: 12px; }
+.smart-plan-day small { color: var(--text-muted); line-height: 1.35; }
+.schedule-toggle { justify-self: start; padding: 8px 10px; font-size: 12px; }
+.budget-guidance { border-top: 1px solid var(--border); padding: 9px 0; display: grid; gap: 4px; }
+.budget-guidance small { color: var(--text-muted); line-height: 1.4; }
 .obligation-row span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
 .priority-tag { display: inline-flex; flex: 0 0 auto; padding: 2px 5px; border-radius: 999px; background: var(--bg-app); color: var(--text-muted); font-size: 10px; font-style: normal; font-weight: 700; }
 .priority-tag.essential { color: var(--danger); background: var(--danger-bg); }

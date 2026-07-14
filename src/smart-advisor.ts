@@ -2,6 +2,7 @@ import { currentMonth as actualCurrentMonth } from "./domain";
 import type { Category, ObligationPriority, Transaction } from "./domain";
 import type { AppData } from "./store";
 import { budgetProgress, cashFlowScenarios, monthForecast, totalBalance } from "./finance";
+import type { CashFlowEvent } from "./finance";
 import { addMonths } from "./utils";
 
 export type SmartPlanScenarioId = "base" | "cautious" | "rescue";
@@ -11,6 +12,20 @@ export interface SuggestedBudget {
   categoryName: string;
   suggestedLimit: number;
   kind: "need" | "want";
+  spent: number;
+  fixedRemaining: number;
+  flexibleRemaining: number;
+  dailyFlexibleCap: number;
+}
+
+export interface DailyPlanDay {
+  date: string;
+  income: number;
+  fixedExpense: number;
+  flexibleCap: number;
+  closingBalance: number;
+  isBelowReserve: boolean;
+  events: Array<{ label: string; amount: number }>;
 }
 
 export interface PlanScenario {
@@ -50,6 +65,7 @@ export interface SmartPlan {
   scenarios: PlanScenario[];
   priorityActions: Array<{ level: "danger" | "warning" | "info"; title: string; detail: string }>;
   upcomingObligations: Array<{ date: string; label: string; amount: number; priority: ObligationPriority; priorityLabel: string }>;
+  dailyPlan: DailyPlanDay[];
 }
 
 function isFlexibleExpense(transaction: Transaction) {
@@ -115,7 +131,8 @@ function unavailablePlan(balance: number): SmartPlan {
     behaviorConfidence: "low",
     scenarios: [],
     priorityActions: [],
-    upcomingObligations: []
+    upcomingObligations: [],
+    dailyPlan: []
   };
 }
 
@@ -213,9 +230,19 @@ export function generateSmartPlan(data: AppData, currentMonth: string, selectedS
     const baseline = baselineRemainingByCategory.get(categoryId) ?? 0;
     const fixedRemaining = fixedRemainingByCategory.get(categoryId) ?? 0;
     const flexibleAllocation = baselineRemaining > 0 ? flexibleAllowance * (baseline / baselineRemaining) : 0;
-    const suggestedLimit = roundUpToThousand((allCurrentExpenseByCategory.get(categoryId) ?? 0) + fixedRemaining + flexibleAllocation);
+    const spent = allCurrentExpenseByCategory.get(categoryId) ?? 0;
+    const suggestedLimit = roundUpToThousand(spent + fixedRemaining + flexibleAllocation);
     if (suggestedLimit <= 0) continue;
-    suggestedBudgets.push({ categoryId, categoryName: category.name, suggestedLimit, kind: categoryKind(category) });
+    suggestedBudgets.push({
+      categoryId,
+      categoryName: category.name,
+      suggestedLimit,
+      kind: categoryKind(category),
+      spent,
+      fixedRemaining: Math.ceil(fixedRemaining),
+      flexibleRemaining: Math.max(0, suggestedLimit - spent - Math.ceil(fixedRemaining)),
+      dailyFlexibleCap: daysRemaining ? Math.floor(flexibleAllocation / daysRemaining) : 0
+    });
   }
   suggestedBudgets.sort((left, right) => right.suggestedLimit - left.suggestedLimit);
   const needsTotal = suggestedBudgets.filter(item => item.kind === "need").reduce((sum, item) => sum + item.suggestedLimit, 0);
@@ -260,6 +287,30 @@ export function generateSmartPlan(data: AppData, currentMonth: string, selectedS
     })
     .sort((left, right) => PRIORITY_RANK[left.priority] - PRIORITY_RANK[right.priority] || left.date.localeCompare(right.date))
     .slice(0, 4);
+  const dailyPlan: DailyPlanDay[] = [];
+  const eventsByDate = new Map<string, CashFlowEvent[]>();
+  for (const event of selectedFlow?.events ?? []) {
+    const events = eventsByDate.get(event.date) ?? [];
+    events.push(event);
+    eventsByDate.set(event.date, events);
+  }
+  let runningBalance = balance;
+  for (const [date, events] of [...eventsByDate.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const fixedEvents = events.filter(event => event.kind !== "flexible");
+    const income = fixedEvents.filter(event => event.amount > 0).reduce((sum, event) => sum + event.amount, 0);
+    const fixedExpense = fixedEvents.filter(event => event.amount < 0).reduce((sum, event) => sum + Math.abs(event.amount), 0);
+    const flexibleCap = isBalanced && events.some(event => event.kind === "flexible") ? dailyFlexibleCap : 0;
+    runningBalance += income - fixedExpense - flexibleCap;
+    dailyPlan.push({
+      date,
+      income: Math.ceil(income),
+      fixedExpense: Math.ceil(fixedExpense),
+      flexibleCap,
+      closingBalance: Math.floor(runningBalance),
+      isBelowReserve: runningBalance < reserveFloor,
+      events: fixedEvents.map(event => ({ label: event.label, amount: Math.ceil(event.amount) }))
+    });
+  }
   const fallbackScenario = { endingBalance: balance, lowestBalance: balance, lowestBalanceDate: null, shortfall: 0 };
   const scenarios: PlanScenario[] = [
     { id: "base", label: "Cơ sở", description: "Theo nhịp chi hiện tại và khoản phải thu sau khi xét mức chắc chắn.", ...(flowScenarios?.base ?? fallbackScenario) },
@@ -298,6 +349,7 @@ export function generateSmartPlan(data: AppData, currentMonth: string, selectedS
     behaviorConfidence: forecast?.behaviorConfidence ?? "low",
     scenarios,
     priorityActions,
-    upcomingObligations
+    upcomingObligations,
+    dailyPlan
   };
 }

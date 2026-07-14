@@ -13,10 +13,12 @@ export function SmartPlanModal({ data, month, onClose, onApplied }: { data: AppD
   const plan = generateSmartPlan(data, month, scenario);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState("");
+  const [showFullSchedule, setShowFullSchedule] = useState(false);
   const confidenceLabel = { low: "Đang học", medium: "Khá tin cậy", high: "Tin cậy" }[plan.behaviorConfidence];
   const existingBudgets = new Map(data.budgets.filter(budget => budget.month === month).map(budget => [budget.categoryId, budget]));
-  const essentialItems = plan.suggestedBudgets.filter(item => item.kind === "need").slice(0, 3);
-  const discretionaryItems = plan.suggestedBudgets.filter(item => item.kind === "want").slice(0, 3);
+  const visibleDailyPlan = showFullSchedule
+    ? plan.dailyPlan
+    : plan.dailyPlan.filter((item, index) => index < 7 || item.income > 0 || item.fixedExpense > 0 || item.isBelowReserve);
 
   if (!plan.isCurrentMonth) {
     return <Modal title="Kế hoạch chi tiêu thích ứng" onClose={onClose}><div className="alert alert-danger"><p>Kế hoạch thông minh chỉ hỗ trợ tháng đang diễn ra để không tạo ngân sách sai cho tháng khác.</p></div><div className="modal-footer"><button className="primary" onClick={onClose}>Đã hiểu</button></div></Modal>;
@@ -78,16 +80,39 @@ export function SmartPlanModal({ data, month, onClose, onApplied }: { data: AppD
         <div className="plan-breakdown">
           <h4>Ưu tiên hành động</h4>
           {plan.priorityActions.map(action => <div className={`cash-flow-action ${action.level}`} key={action.title}><strong>{action.title}</strong><p>{action.detail}</p></div>)}
+          {plan.dailyPlan.length > 0 && <div className="breakdown-section cash-flow-calendar">
+            <div className="row-between"><strong>Lịch dòng tiền còn lại</strong><span className="hint">{showFullSchedule ? `${plan.dailyPlan.length} ngày` : "7 ngày + ngày có nghĩa vụ"}</span></div>
+            {visibleDailyPlan.map(day => <div className={`smart-plan-day ${day.isBelowReserve ? "at-risk" : ""}`} key={day.date}>
+              <div className="row-between"><strong>{formatDateVi(day.date)}</strong><strong className={day.isBelowReserve ? "text-danger" : ""}>Cuối ngày: {formatVnd(day.closingBalance)}</strong></div>
+              <div className="smart-plan-day-meta">
+                {day.income > 0 && <span className="text-success">+{formatVnd(day.income)} vào</span>}
+                {day.fixedExpense > 0 && <span className="text-danger">-{formatVnd(day.fixedExpense)} đã lên lịch</span>}
+                {day.flexibleCap > 0 && <span>Chi linh hoạt tối đa {formatVnd(day.flexibleCap)}</span>}
+                {day.flexibleCap === 0 && day.income === 0 && day.fixedExpense === 0 && <span>Không nên mở thêm chi linh hoạt</span>}
+              </div>
+              {day.events.length > 0 && <small>{day.events.map(event => `${event.amount > 0 ? "+" : "-"}${formatVnd(Math.abs(event.amount))} ${event.label}`).join(" · ")}</small>}
+            </div>)}
+            {plan.dailyPlan.length > visibleDailyPlan.length && <button type="button" className="secondary schedule-toggle" onClick={() => setShowFullSchedule(true)}>Xem toàn bộ lịch tháng</button>}
+            {showFullSchedule && plan.dailyPlan.length > 7 && <button type="button" className="secondary schedule-toggle" onClick={() => setShowFullSchedule(false)}>Thu gọn lịch</button>}
+          </div>}
           {plan.upcomingObligations.length > 0 && <div className="breakdown-section"><strong>Nghĩa vụ cần bảo vệ</strong>{plan.upcomingObligations.map(item => { const days = Math.max(0, Math.ceil((new Date(`${item.date}T00:00:00`).getTime() - new Date(new Date().toDateString()).getTime()) / 86_400_000)); const due = days === 0 ? "Hôm nay" : `Còn ${days} ngày`; return <div className="row-between obligation-row" key={`${item.date}:${item.label}`}><span><em className={`priority-tag ${item.priority}`}>{item.priorityLabel}</em>{due} · {item.label}</span><strong>-{formatVnd(item.amount)}</strong></div>; })}</div>}
         </div>
 
         <div className="plan-breakdown">
           <h4>Ngân sách theo kịch bản {plan.scenarios.find(item => item.id === plan.selectedScenario)?.label.toLowerCase()}</h4>
           <p className="hint">{plan.summary}</p>
-          {essentialItems.length > 0 && <div className="breakdown-section"><div className="row-between"><span className="text-primary"><strong>Chi thiết yếu</strong></span><strong>{formatVnd(plan.needsTotal)}</strong></div>{essentialItems.map(item => <div className="row-between" key={item.categoryId}><span>{item.categoryName}</span><strong>{formatVnd(item.suggestedLimit)}</strong></div>)}</div>}
-          {discretionaryItems.length > 0 ? <div className="breakdown-section"><div className="row-between"><span className="text-warning"><strong>Chi tùy chọn</strong></span><strong>{formatVnd(plan.wantsTotal)}</strong></div>{discretionaryItems.map(item => <div className="row-between" key={item.categoryId}><span>{item.categoryName}</span><strong>{formatVnd(item.suggestedLimit)}</strong></div>)}</div> : <div className="breakdown-section"><strong>Chi tùy chọn</strong><p className="hint">Không phát hiện chi tùy chọn trong dữ liệu dùng để lập kế hoạch.</p></div>}
+          {plan.suggestedBudgets.length > 0 && <div className="breakdown-section">
+            <div className="row-between"><strong>Hạn mức chi tiết theo danh mục</strong><span className="hint">Đã chi · cần giữ · còn được chi</span></div>
+            <p className="hint">Thiết yếu: {formatVnd(plan.needsTotal)} · Tùy chọn: {formatVnd(plan.wantsTotal)}</p>
+            {plan.suggestedBudgets.map(item => {
+              const existing = existingBudgets.get(item.categoryId);
+              return <div className="budget-guidance" key={item.categoryId}>
+                <div className="row-between"><span><strong>{item.categoryName}</strong>{existing ? ` · Ngân sách cũ ${formatVnd(existing.limit)}` : " · Ngân sách mới"}</span><strong>{formatVnd(item.suggestedLimit)}</strong></div>
+                <small>Đã chi {formatVnd(item.spent)} · Giữ cho khoản đã lên lịch {formatVnd(item.fixedRemaining)} · Còn chi linh hoạt {formatVnd(item.flexibleRemaining)}{item.dailyFlexibleCap > 0 ? ` (tối đa ${formatVnd(item.dailyFlexibleCap)}/ngày)` : ""}</small>
+              </div>;
+            })}
+          </div>}
           <div className="breakdown-section"><div className="row-between"><span className="text-success"><strong>Quỹ cần giữ</strong></span><strong>{formatVnd(plan.recommendedReserve)}</strong></div><p className="hint">{plan.recommendedReserve > 0 ? "Gồm khoảng 7 ngày chi thiết yếu hoặc 5% nghĩa vụ còn lại, lấy mức cao hơn." : "Hiện chưa đủ khả năng tạo quỹ dự phòng."}</p></div>
-          {plan.suggestedBudgets.length > 0 && <div className="breakdown-section">{plan.suggestedBudgets.map(item => <div className="row-between" key={item.categoryId}><span>{item.categoryName}{existingBudgets.get(item.categoryId) ? ` · ${formatVnd(existingBudgets.get(item.categoryId)!.limit)} →` : " · Mới →"}</span><strong>{formatVnd(item.suggestedLimit)}</strong></div>)}</div>}
         </div>
       </div>
 
