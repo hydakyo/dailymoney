@@ -229,7 +229,7 @@ export function generateSmartPlan(data: AppData, currentMonth: string): SmartPla
   const fallbackScenario = { endingBalance: projectedBalance, lowestBalance: projectedBalance, lowestBalanceDate: null, shortfall: Math.max(0, -projectedBalance) };
   const scenarios: PlanScenario[] = [
     { id: "base", label: "Cơ sở", description: "Theo nhịp chi hiện tại và toàn bộ khoản phải thu đến hạn.", ...(cashFlow ?? fallbackScenario) },
-    { id: "cautious", label: "Thận trọng", description: "Chi linh hoạt cao hơn 25%; chỉ tính 50% khoản phải thu chưa nhận.", ...(cautiousCashFlow ?? fallbackScenario) },
+    { id: "cautious", label: "Thận trọng", description: "Chi linh hoạt cao hơn 25%; giảm thêm 50% khoản phải thu sau khi xét mức chắc chắn của từng khoản.", ...(cautiousCashFlow ?? fallbackScenario) },
     { id: "rescue", label: "Cứu hộ", description: "Giảm 45% chi linh hoạt và không dựa vào khoản phải thu chưa nhận.", ...(rescueCashFlow ?? fallbackScenario) }
   ];
   const summary = shortfall > 0

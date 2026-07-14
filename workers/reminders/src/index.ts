@@ -2,6 +2,7 @@ import webpush from "web-push";
 
 export interface Env {
   REMINDERS: D1Database;
+  SUBSCRIPTION_LIMITER: RateLimit;
   VAPID_PUBLIC_KEY: string;
   VAPID_PRIVATE_KEY: string;
   VAPID_SUBJECT: string;
@@ -89,9 +90,13 @@ async function handleApi(request: Request, env: Env, path: string) {
 
   if (path === "/api/reminders/subscribe" && request.method === "POST") {
     try {
+      const clientKey = request.headers.get("cf-connecting-ip") ?? "unknown-client";
+      const limit = await env.SUBSCRIPTION_LIMITER.limit({ key: `subscribe:${clientKey}` });
+      if (!limit.success) return json({ error: "Bạn đã thao tác quá nhanh. Vui lòng thử lại sau một phút." }, 429);
       const body = await readJson<{ subscription?: unknown; time?: unknown }>();
       if (!body || !validSubscriptionStrict(body.subscription) || !validTime(body.time)) return invalid("Subscription hoặc giờ nhắc không hợp lệ.");
-      await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at").bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time).run();
+      const result = await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) SELECT ?, ?, ?, datetime('now') WHERE EXISTS (SELECT 1 FROM subscriptions WHERE endpoint = ?) OR (SELECT COUNT(*) FROM subscriptions) < 5 ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at").bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time, body.subscription.endpoint).run();
+      if (!result.meta.changes) return json({ error: "Daily Money đã đạt giới hạn 5 thiết bị nhận nhắc. Hãy tắt nhắc trên thiết bị cũ trước." }, 429);
       return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin } });
     } catch {
       return invalid("Request không hợp lệ.");

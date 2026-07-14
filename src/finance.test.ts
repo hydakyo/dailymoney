@@ -106,7 +106,7 @@ describe("finance calculations", () => {
 
   it("includes due debts using their remaining balances in the end-of-month forecast", () => {
     const payable: Debt = { id: "payable", kind: "payable", person: "An", principal: 600_000, openedDate: "2026-06-01", dueDate: "2026-07-20", createdAt: "", updatedAt: "" };
-    const receivable: Debt = { id: "receivable", kind: "receivable", person: "Bình", principal: 500_000, openedDate: "2026-06-01", dueDate: "2026-07-28", createdAt: "", updatedAt: "" };
+    const receivable: Debt = { id: "receivable", kind: "receivable", person: "Bình", principal: 500_000, openedDate: "2026-06-01", dueDate: "2026-07-28", collectionConfidence: "certain", createdAt: "", updatedAt: "" };
     const forecast = monthForecast({
       balance: 1_000_000, month: "2026-07", transactions: [], rules: [], occurrences: [], installments: [], budgets: [],
       debts: [payable, receivable],
@@ -173,7 +173,7 @@ describe("finance calculations", () => {
   });
 
   it("uses a cautious scenario that discounts uncertain receivables and carries obligation priority", () => {
-    const debt: Debt = { id: "loan", kind: "receivable", person: "Bình", principal: 1_000_000, openedDate: "2026-06-01", dueDate: "2026-07-20", createdAt: "", updatedAt: "" };
+    const debt: Debt = { id: "loan", kind: "receivable", person: "Bình", principal: 1_000_000, openedDate: "2026-06-01", dueDate: "2026-07-20", collectionConfidence: "certain", createdAt: "", updatedAt: "" };
     const input = { balance: 100_000, month: "2026-07", transactions: [], occurrences: [], installments: [], budgets: [], debts: [debt], debtPayments: [], rules: [rule({ id: "rent", amount: 50_000, priority: "essential", nextDueDate: "2026-07-15" })], asOf: new Date(2026, 6, 14) };
 
     const base = cashFlowForecast(input);
@@ -191,6 +191,14 @@ describe("finance calculations", () => {
     expect(monthForecast(input)?.expectedDebtReceivables).toBe(500_000);
     expect(cashFlowForecast(input)?.endingBalance).toBe(500_000);
     expect(cashFlowForecast({ ...input, scenario: { receivableMultiplier: 0.5 } })?.endingBalance).toBe(250_000);
+  });
+
+  it("treats a legacy receivable without confidence as likely, not certain", () => {
+    const debt: Debt = { id: "legacy-loan", kind: "receivable", person: "Bình", principal: 1_000_000, openedDate: "2026-06-01", dueDate: "2026-07-20", createdAt: "", updatedAt: "" };
+    const input = { balance: 0, month: "2026-07", transactions: [], occurrences: [], installments: [], budgets: [], debts: [debt], debtPayments: [], rules: [], asOf: new Date(2026, 6, 14) };
+
+    expect(monthForecast(input)?.expectedDebtReceivables).toBe(800_000);
+    expect(cashFlowForecast(input)?.endingBalance).toBe(800_000);
   });
 
   it("does not forecast a future installment period and finds the oldest missed period", () => {

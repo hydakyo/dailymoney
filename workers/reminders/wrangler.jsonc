@@ -5,5 +5,10 @@
   "compatibility_flags": ["nodejs_compat"],
   "routes": [{ "pattern": "dm.kelvin.io.vn/api/reminders/*", "zone_name": "kelvin.io.vn" }],
   "d1_databases": [{ "binding": "REMINDERS", "database_name": "daily-money-reminders", "database_id": "13c9d21e-59c6-4504-97a1-8e32cebebc2b" }],
+  "ratelimits": [{
+    "name": "SUBSCRIPTION_LIMITER",
+    "namespace_id": "91260714",
+    "simple": { "limit": 5, "period": 60 }
+  }],
   "triggers": { "crons": ["* * * * *"] }
 }

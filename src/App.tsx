@@ -456,21 +456,28 @@ export default function App() {
           outstanding={debtOutstanding(data.debts.find(item => item.id === selectedDebtId)!, data.payments)}
           categories={data.categories}
           onClose={() => setModal(null)}
-          onSubmit={async value => {
-            const debt = data.debts.find(item => item.id === selectedDebtId)!;
-            const now = new Date().toISOString();
-            const category = data.categories.find(item => item.kind === (debt.kind === "payable" ? "expense" : "income") && !item.archived) ?? data.categories[0];
-            const transactionId = newId();
-            await db.transaction("rw", db.transactions, db.debtPayments, db.debts, async () => {
-              await db.transactions.add({ id: transactionId, kind: debt.kind === "payable" ? "expense" : "income", amount: value.amount, categoryId: category.id, walletId: primaryWalletId, date: value.date, note: value.note || `Thanh toán nợ: ${debt.person}`, debtPaymentId: value.id, createdAt: now, updatedAt: now });
-              await db.debtPayments.add({ ...value, debtId: debt.id, transactionId, createdAt: now });
-              if (value.amount >= debtOutstanding(debt, data.payments)) {
-                await db.debts.update(debt.id, { closedAt: now, updatedAt: now });
-              }
-            });
-            setModal(null);
-            await refresh();
-          }}
+            onSubmit={async value => {
+              const debt = data.debts.find(item => item.id === selectedDebtId);
+              if (!debt) throw new Error("Không tìm thấy khoản công nợ.");
+              const now = new Date().toISOString();
+              const category = data.categories.find(item => item.kind === (debt.kind === "payable" ? "expense" : "income") && !item.archived) ?? data.categories[0];
+              if (!category || !Number.isFinite(value.amount) || value.amount <= 0) throw new Error("Số tiền thanh toán không hợp lệ.");
+              const transactionId = newId();
+              await db.transaction("rw", db.transactions, db.debtPayments, db.debts, async () => {
+                const currentDebt = await db.debts.get(debt.id);
+                if (!currentDebt || currentDebt.closedAt) throw new Error("Khoản công nợ này đã được tất toán.");
+                const currentPayments = await db.debtPayments.where("debtId").equals(debt.id).toArray();
+                const outstanding = debtOutstanding(currentDebt, currentPayments);
+                if (value.amount > outstanding) throw new Error("Số tiền vượt quá phần công nợ còn lại.");
+                await db.transactions.add({ id: transactionId, kind: currentDebt.kind === "payable" ? "expense" : "income", amount: value.amount, categoryId: category.id, walletId: primaryWalletId, date: value.date, note: value.note || `Thanh toán nợ: ${currentDebt.person}`, debtPaymentId: value.id, createdAt: now, updatedAt: now });
+                await db.debtPayments.add({ ...value, debtId: currentDebt.id, transactionId, createdAt: now });
+                if (value.amount >= outstanding) {
+                  await db.debts.update(currentDebt.id, { closedAt: now, updatedAt: now });
+                }
+              });
+              setModal(null);
+              await refresh();
+            }}
         />
       )}
       {modal === "goal" && <GoalForm onClose={() => setModal(null)} onSubmit={async value => { await db.goals.add({ id: newId(), ...value, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}

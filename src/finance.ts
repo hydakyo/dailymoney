@@ -87,9 +87,11 @@ export function oldestUnpaidInstallmentPeriod(installment: Installment, transact
 
 export function collectionConfidenceMultiplier(debt: Debt) {
   if (debt.kind !== "receivable") return 1;
+  // Backups created before collection confidence existed must stay conservative.
+  // New receivables use "likely" as their default, so legacy rows do too.
   if (debt.collectionConfidence === "uncertain") return 0.5;
-  if (debt.collectionConfidence === "likely") return 0.8;
-  return 1;
+  if (debt.collectionConfidence === "certain") return 1;
+  return 0.8;
 }
 
 export function normalizeInstallmentPayments(transactions: Transaction[], installments: Installment[]) {

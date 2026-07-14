@@ -162,13 +162,24 @@ export function DebtPaymentForm({ debt, outstanding, onSubmit, onClose }: { debt
   const [amount, setAmount] = useState(String(outstanding));
   const [date, setDate] = useState(today());
   const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmit({ id: newId(), amount: Number(amount), date, note: note || undefined });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Không thể ghi khoản thanh toán. Vui lòng thử lại.");
+      setSubmitting(false);
+    }
+  };
   return (
     <Modal title={debt.kind === "payable" ? "Ghi trả nợ" : "Ghi thu nợ"} onClose={onClose}>
       <p className="form-note">Còn lại {formatVnd(outstanding)} · thao tác này sẽ ghi vào số dư.</p>
       <AmountInput value={amount} onChange={setAmount} />
       <label className="field"><span>Ngày</span><input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
       <label className="field"><span>Ghi chú</span><input value={note} onChange={event => setNote(event.target.value)} /></label>
-      <button className="primary full" disabled={!amount || Number(amount) > outstanding} onClick={() => void onSubmit({ id: newId(), amount: Number(amount), date, note: note || undefined })}>Xác nhận</button>
+      <button className="primary full" disabled={!amount || Number(amount) > outstanding || submitting} onClick={() => void submit()}>{submitting ? "Đang lưu…" : "Xác nhận"}</button>
     </Modal>
   );
 }

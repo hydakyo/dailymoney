@@ -153,6 +153,21 @@ export class DailyMoneyDatabase extends Dexie {
         }
       });
     });
+
+    this.version(10).stores({
+      settings: "id", wallets: "id, archived", categories: "id, kind, archived",
+      transactions: "id, date, kind, categoryId, walletId, toWalletId, recurringRuleId, debtPaymentId, installmentId, installmentPeriod, [installmentId+installmentPeriod]",
+      budgets: "id, [month+categoryId], month, categoryId", recurringRules: "id, active, nextDueDate",
+      recurringOccurrences: "id, [ruleId+dueDate], status, dueDate", debts: "id, kind, dueDate, closedAt",
+      debtPayments: "id, debtId, date, transactionId", goals: "id, closedAt", goalEntries: "id, goalId, date",
+      installments: "id, closedAt, dueDate"
+    }).upgrade(async trans => {
+      await trans.table("debts").toCollection().modify((debt: Debt) => {
+        if (debt.kind === "receivable" && !debt.collectionConfidence) {
+          debt.collectionConfidence = "likely";
+        }
+      });
+    });
   }
 }
 

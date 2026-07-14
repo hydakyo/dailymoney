@@ -224,7 +224,7 @@ export function PlansView({
                   <p>
                     Còn {formatVnd(outstanding)} / {formatVnd(item.principal)}
                   </p>
-                  {item.kind === "receivable" && <label className="field compact-field"><span>Mức chắc chắn thu nợ</span><select value={item.collectionConfidence ?? "certain"} onChange={event => void onUpdateDebt(item.id, { collectionConfidence: event.target.value as CollectionConfidence })}><option value="certain">Chắc chắn</option><option value="likely">Khả năng cao</option><option value="uncertain">Chưa chắc</option></select></label>}
+                  {item.kind === "receivable" && !item.closedAt && <label className="field compact-field"><span>Mức chắc chắn thu nợ</span><select value={item.collectionConfidence ?? "likely"} onChange={event => void onUpdateDebt(item.id, { collectionConfidence: event.target.value as CollectionConfidence })}><option value="certain">Chắc chắn</option><option value="likely">Khả năng cao</option><option value="uncertain">Chưa chắc</option></select></label>}
                   <div className="plan-actions">
                     {!item.closedAt && (
                       <button className="soft" onClick={() => onPay(item.id)}>

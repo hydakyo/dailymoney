@@ -100,4 +100,21 @@ describe("installment database migrations", () => {
       await disposeFixture(name, upgraded);
     }
   });
+
+  it("assigns likely confidence to a receivable created before confidence existed", async () => {
+    const name = `daily-money-debt-migration-${crypto.randomUUID()}`;
+    const legacy = new Dexie(name);
+    legacy.version(9).stores({ debts: "id, kind, dueDate, closedAt" });
+    await legacy.open();
+    await legacy.table("debts").add({ id: "loan", kind: "receivable", person: "Bình", principal: 1_000_000, openedDate: "2026-06-01", createdAt: "", updatedAt: "" });
+    legacy.close();
+
+    const upgraded = new DailyMoneyDatabase(name);
+    await upgraded.open();
+    try {
+      expect(await upgraded.debts.get("loan")).toMatchObject({ collectionConfidence: "likely" });
+    } finally {
+      await disposeFixture(name, upgraded);
+    }
+  });
 });
