@@ -302,7 +302,14 @@ export default function App() {
               if (section === "installments") setModal("installment");
               if (section === "recurring") setModal("recurring");
             }}
-            onSmartPlan={() => setModal("smart-plan")}
+            onSmartPlan={() => {
+              if (month !== currentMonth()) {
+                window.alert("Kế hoạch thông minh hiện chỉ hỗ trợ tháng đang diễn ra.");
+                return;
+              }
+              setModal("smart-plan");
+            }}
+            canUseSmartPlan={month === currentMonth()}
             onCopyPreviousBudgets={async () => {
               const previousMonth = addMonths(month, -1);
               const previousBudgets = data.budgets.filter(item => item.month === previousMonth);

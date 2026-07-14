@@ -43,6 +43,26 @@ export type CashFlowScenario = {
   receivableMultiplier?: number;
 };
 
+export type CashFlowForecastInput = {
+  balance: number;
+  month: string;
+  transactions: Transaction[];
+  rules: RecurringRule[];
+  occurrences: RecurringOccurrence[];
+  installments: Installment[];
+  budgets: BudgetProgressItem[];
+  debts?: Debt[];
+  debtPayments?: DebtPayment[];
+  asOf?: Date;
+  scenario?: CashFlowScenario;
+};
+
+export type CashFlowScenarios = {
+  base: CashFlowForecast;
+  cautious: CashFlowForecast;
+  rescue: CashFlowForecast;
+};
+
 export function installmentPeriods(installment: Installment) {
   const [year, month] = installment.startDate.slice(0, 7).split("-").map(Number);
   return Array.from({ length: installment.totalMonths }, (_, offset) => {
@@ -225,8 +245,24 @@ export function monthForecast({
   }
   for (const remaining of remainingBudgetByCategory.values()) remainingBudget += remaining;
   const flexibleForecastSource = currentFlexibleTransactions.length ? "current" : historicalFlexibleTransactions.length ? "history" : "none";
-  const historyTransactionCount = historicalFlexibleTransactions.length;
-  const behaviorConfidence = historyTransactionCount >= 24 ? "high" : historyTransactionCount >= 8 ? "medium" : "low";
+  const historicalDates = new Set(historicalFlexibleTransactions.map(transaction => transaction.date));
+  const historicalMonths = new Set(historicalFlexibleTransactions.map(transaction => transaction.date.slice(0, 7)));
+  const historicalCategoryCount = new Set(historicalFlexibleTransactions.map(transaction => transaction.categoryId)).size;
+  const dailyTotals = new Map<string, number>();
+  for (const transaction of historicalFlexibleTransactions) {
+    dailyTotals.set(transaction.date, (dailyTotals.get(transaction.date) ?? 0) + transaction.amount);
+  }
+  const dailyValues = [...dailyTotals.values()];
+  const dailyAverage = dailyValues.reduce((sum, amount) => sum + amount, 0) / Math.max(1, dailyValues.length);
+  const dailyDeviation = Math.sqrt(dailyValues.reduce((sum, amount) => sum + (amount - dailyAverage) ** 2, 0) / Math.max(1, dailyValues.length));
+  const hasStablePattern = dailyAverage > 0 && dailyDeviation / dailyAverage <= 1.5;
+  const latestHistoryDate = [...historicalDates].sort().at(-1);
+  const isRecent = Boolean(latestHistoryDate && latestHistoryDate >= new Date(Date.UTC(asOf.getFullYear(), asOf.getMonth(), asOf.getDate() - 45)).toISOString().slice(0, 10));
+  const behaviorConfidence = historicalMonths.size >= 3 && historicalDates.size >= 18 && historicalCategoryCount >= 2 && hasStablePattern && isRecent
+    ? "high"
+    : historicalMonths.size >= 2 && historicalDates.size >= 8 && isRecent
+    ? "medium"
+    : "low";
 
   const ruleById = new Map(rules.map(rule => [rule.id, rule]));
   const occurrenceByKey = new Map(occurrences.map(occurrence => [`${occurrence.ruleId}:${occurrence.dueDate}`, occurrence]));
@@ -247,14 +283,10 @@ export function monthForecast({
     const rule = ruleById.get(occurrence.ruleId);
     if (rule) includeRecurring(rule, occurrence.dueDate);
   }
-  const monthEnd = `${month}-${String(daysInMonth).padStart(2, "0")}`;
   for (const rule of rules) {
-    let dueDate = rule.nextDueDate;
-    while (dueDate <= monthEnd && (!rule.endDate || dueDate <= rule.endDate)) {
-      if (dueDate.startsWith(month)) includeRecurring(rule, dueDate);
-      dueDate = advanceDueDate(rule, dueDate);
-    }
+    for (const dueDate of recurringDatesInMonth(rule, month)) includeRecurring(rule, dueDate);
   }
+  const monthEnd = `${month}-${String(daysInMonth).padStart(2, "0")}`;
 
   let expectedInstallments = 0;
   let expectedInstallmentPeriods = 0;
@@ -291,19 +323,7 @@ export function monthForecast({
   };
 }
 
-export function cashFlowForecast(input: {
-  balance: number;
-  month: string;
-  transactions: Transaction[];
-  rules: RecurringRule[];
-  occurrences: RecurringOccurrence[];
-  installments: Installment[];
-  budgets: BudgetProgressItem[];
-  debts?: Debt[];
-  debtPayments?: DebtPayment[];
-  asOf?: Date;
-  scenario?: CashFlowScenario;
-}): CashFlowForecast | null {
+export function cashFlowForecast(input: CashFlowForecastInput): CashFlowForecast | null {
   const asOf = input.asOf ?? new Date();
   const forecast = monthForecast({ ...input, asOf });
   if (!forecast) return null;
@@ -313,8 +333,8 @@ export function cashFlowForecast(input: {
   const monthEnd = `${currentMonth}-${String(new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate()).padStart(2, "0")}`;
   const flexibleExpenseMultiplier = Math.max(0, input.scenario?.flexibleExpenseMultiplier ?? 1);
   const receivableMultiplier = Math.min(1, Math.max(0, input.scenario?.receivableMultiplier ?? 1));
-  const events: CashFlowEvent[] = [];
-  const addEvent = (event: CashFlowEvent) => events.push({ ...event, date: event.date < asOfDate ? asOfDate : event.date });
+  const fixedEvents: CashFlowEvent[] = [];
+  const addEvent = (event: CashFlowEvent) => fixedEvents.push({ ...event, date: event.date < asOfDate ? asOfDate : event.date });
   const ruleById = new Map(input.rules.map(rule => [rule.id, rule]));
   const occurrenceByKey = new Map(input.occurrences.map(occurrence => [`${occurrence.ruleId}:${occurrence.dueDate}`, occurrence]));
   const countedOccurrences = new Set<string>();
@@ -332,11 +352,7 @@ export function cashFlowForecast(input: {
     if (rule) addRecurring(rule, occurrence.dueDate);
   }
   for (const rule of input.rules) {
-    let dueDate = rule.nextDueDate;
-    while (dueDate <= monthEnd && (!rule.endDate || dueDate <= rule.endDate)) {
-      if (dueDate.startsWith(currentMonth)) addRecurring(rule, dueDate);
-      dueDate = advanceDueDate(rule, dueDate);
-    }
+    for (const dueDate of recurringDatesInMonth(rule, currentMonth)) addRecurring(rule, dueDate);
   }
 
   for (const installment of input.installments) {
@@ -365,35 +381,59 @@ export function cashFlowForecast(input: {
   }
 
   const flexibleExpenseForecast = forecast.projectedFlexibleExpense * flexibleExpenseMultiplier;
-  if (flexibleExpenseForecast > 0 && forecast.daysRemaining > 0) {
-    const dailyAmount = flexibleExpenseForecast / forecast.daysRemaining;
-    for (let date = new Date(Date.UTC(asOf.getFullYear(), asOf.getMonth(), asOf.getDate() + 1)); date.toISOString().slice(0, 10) <= monthEnd; date.setUTCDate(date.getUTCDate() + 1)) {
-      addEvent({ date: date.toISOString().slice(0, 10), amount: -dailyAmount, label: "Chi linh hoạt dự kiến", kind: "flexible" });
-    }
+  const flexibleDates: string[] = [];
+  for (let date = new Date(Date.UTC(asOf.getFullYear(), asOf.getMonth(), asOf.getDate() + 1)); date.toISOString().slice(0, 10) <= monthEnd; date.setUTCDate(date.getUTCDate() + 1)) {
+    flexibleDates.push(date.toISOString().slice(0, 10));
   }
-
-  events.sort((a, b) => a.date.localeCompare(b.date) || a.amount - b.amount || a.label.localeCompare(b.label));
-  let runningBalance = input.balance;
-  let lowestBalance = runningBalance;
-  let lowestBalanceDate: string | null = null;
-  for (const event of events) {
-    runningBalance += event.amount;
-    if (runningBalance < lowestBalance) {
-      lowestBalance = runningBalance;
-      lowestBalanceDate = event.date;
+  const simulate = (dailyAmount: number) => {
+    const events = [
+      ...fixedEvents,
+      ...flexibleDates.map(date => ({ date, amount: -dailyAmount, label: "Chi linh hoạt dự kiến", kind: "flexible" as const }))
+    ].sort((a, b) => a.date.localeCompare(b.date) || a.amount - b.amount || a.label.localeCompare(b.label));
+    let runningBalance = input.balance;
+    let lowestBalance = runningBalance;
+    let lowestBalanceDate: string | null = null;
+    for (const event of events) {
+      runningBalance += event.amount;
+      if (runningBalance < lowestBalance) {
+        lowestBalance = runningBalance;
+        lowestBalanceDate = event.date;
+      }
     }
-  }
-
-  const shortfall = Math.max(0, -lowestBalance);
-  return {
-    endingBalance: runningBalance,
-    lowestBalance,
-    lowestBalanceDate,
-    shortfall,
-    dailyFlexibleAllowance: forecast.daysRemaining ? Math.max(0, flexibleExpenseForecast - Math.max(shortfall, Math.max(0, -runningBalance))) / forecast.daysRemaining : 0,
-    flexibleExpenseForecast,
-    events
+    return { events, endingBalance: runningBalance, lowestBalance, lowestBalanceDate };
   };
+  const expectedDailyFlexible = flexibleDates.length ? flexibleExpenseForecast / flexibleDates.length : 0;
+  const simulation = simulate(expectedDailyFlexible);
+  let dailyFlexibleAllowance = 0;
+  if (flexibleDates.length && simulate(0).lowestBalance >= 0) {
+    let lower = 0;
+    let upper = expectedDailyFlexible;
+    for (let iteration = 0; iteration < 32; iteration += 1) {
+      const candidate = (lower + upper) / 2;
+      if (simulate(candidate).lowestBalance >= 0) lower = candidate;
+      else upper = candidate;
+    }
+    dailyFlexibleAllowance = lower;
+  }
+  const shortfall = Math.max(0, -simulation.lowestBalance);
+  return {
+    endingBalance: simulation.endingBalance,
+    lowestBalance: simulation.lowestBalance,
+    lowestBalanceDate: simulation.lowestBalanceDate,
+    shortfall,
+    dailyFlexibleAllowance,
+    flexibleExpenseForecast,
+    events: simulation.events
+  };
+}
+
+export function cashFlowScenarios(input: Omit<CashFlowForecastInput, "scenario">): CashFlowScenarios | null {
+  const base = cashFlowForecast(input);
+  if (!base) return null;
+  const cautious = cashFlowForecast({ ...input, scenario: { flexibleExpenseMultiplier: 1.25, receivableMultiplier: 0.5 } });
+  const rescue = cashFlowForecast({ ...input, scenario: { flexibleExpenseMultiplier: 0.55, receivableMultiplier: 0 } });
+  if (!cautious || !rescue) return null;
+  return { base, cautious, rescue };
 }
 
 export function debtOutstanding(debt: Debt, payments: DebtPayment[]) {
@@ -440,11 +480,51 @@ export function advanceDueDate(rule: RecurringRule, from: string) {
   return formatLocalDate(date);
 }
 
+function firstRecurringDueOnOrAfter(rule: RecurringRule, target: string) {
+  if (rule.nextDueDate >= target) return rule.nextDueDate;
+  const from = parseLocalDate(rule.nextDueDate);
+  const targetDate = parseLocalDate(target);
+  const differenceInDays = Math.floor((targetDate.getTime() - from.getTime()) / 86_400_000);
+  if (rule.frequency === "daily" || rule.frequency === "weekly") {
+    const stepDays = rule.frequency === "daily" ? rule.interval : rule.interval * 7;
+    const steps = Math.ceil(differenceInDays / stepDays);
+    from.setUTCDate(from.getUTCDate() + steps * stepDays);
+    return formatLocalDate(from);
+  }
+  const differenceInMonths = (targetDate.getUTCFullYear() - from.getUTCFullYear()) * 12 + targetDate.getUTCMonth() - from.getUTCMonth();
+  if (rule.frequency === "monthly") {
+    const steps = Math.ceil(differenceInMonths / rule.interval);
+    const targetMonthIndex = from.getUTCMonth() + steps * rule.interval;
+    const targetYear = from.getUTCFullYear() + Math.floor(targetMonthIndex / 12);
+    const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+    from.setUTCFullYear(targetYear, targetMonth, Math.min(rule.dayOfMonth ?? from.getUTCDate(), daysInMonth(targetYear, targetMonth)));
+    return formatLocalDate(from);
+  }
+  const differenceInYears = targetDate.getUTCFullYear() - from.getUTCFullYear();
+  const steps = Math.ceil(differenceInYears / rule.interval);
+  const targetYear = from.getUTCFullYear() + steps * rule.interval;
+  from.setUTCFullYear(targetYear, from.getUTCMonth(), Math.min(rule.dayOfMonth ?? from.getUTCDate(), daysInMonth(targetYear, from.getUTCMonth())));
+  return formatLocalDate(from);
+}
+
+export function recurringDatesInMonth(rule: RecurringRule, month: string) {
+  const monthStart = `${month}-01`;
+  const [year, monthNumber] = month.split("-").map(Number);
+  const monthEnd = `${month}-${String(daysInMonth(year, monthNumber - 1)).padStart(2, "0")}`;
+  const dueDates: string[] = [];
+  let dueDate = firstRecurringDueOnOrAfter(rule, monthStart);
+  for (let iteration = 0; iteration < 400 && dueDate <= monthEnd && (!rule.endDate || dueDate <= rule.endDate); iteration += 1) {
+    dueDates.push(dueDate);
+    dueDate = advanceDueDate(rule, dueDate);
+  }
+  return dueDates;
+}
+
 export function dueOccurrences(rule: RecurringRule, existing: RecurringOccurrence[], today: string) {
   const results: Array<Pick<RecurringOccurrence, "id" | "ruleId" | "dueDate" | "status">> = [];
   const seen = new Set(existing.map(item => `${item.ruleId}:${item.dueDate}`));
   let dueDate = rule.nextDueDate;
-  while (dueDate <= today && (!rule.endDate || dueDate <= rule.endDate)) {
+  for (let iteration = 0; iteration < 400 && dueDate <= today && (!rule.endDate || dueDate <= rule.endDate); iteration += 1) {
     const key = `${rule.id}:${dueDate}`;
     if (!seen.has(key)) results.push({ id: key, ruleId: rule.id, dueDate, status: "pending" });
     dueDate = advanceDueDate(rule, dueDate);

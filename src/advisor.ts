@@ -1,5 +1,6 @@
 import type { AppData } from "./store";
-import { budgetProgress, monthTotals, totalBalance, debtOutstanding } from "./finance";
+import { currentMonth as actualCurrentMonth } from "./domain";
+import { budgetProgress, cashFlowScenarios, monthTotals, totalBalance, debtOutstanding } from "./finance";
 
 export type AdviceLevel = "danger" | "warning" | "success" | "info";
 
@@ -19,6 +20,52 @@ function getDaysInMonth(yearMonth: string) {
 export function generateAdvice(data: AppData, currentMonth: string): Advice[] {
   const advices: Advice[] = [];
   const balance = totalBalance(data.wallets, data.transactions);
+  const budgets = budgetProgress(data.budgets, data.transactions, data.categories, currentMonth);
+  const flowScenarios = currentMonth === actualCurrentMonth()
+    ? cashFlowScenarios({
+      balance,
+      month: currentMonth,
+      transactions: data.transactions,
+      rules: data.rules,
+      occurrences: data.occurrences,
+      installments: data.installments,
+      budgets,
+      debts: data.debts,
+      debtPayments: data.payments
+    })
+    : null;
+  if (flowScenarios?.base.shortfall) {
+    advices.push({
+      id: "cash_flow_shortfall",
+      level: "danger",
+      title: "Thiếu tiền trước khi có dòng tiền vào",
+      description: `Dòng tiền có thể âm ${flowScenarios.base.shortfall.toLocaleString("vi-VN")}đ vào ${flowScenarios.base.lowestBalanceDate ?? "cuối tháng"}, dù số dư cuối tháng có thể hồi phục.`,
+      action: "Tạm dừng chi linh hoạt và chuẩn bị tiền cho các nghĩa vụ đến hạn trước ngày này."
+    });
+  } else if (flowScenarios?.cautious.shortfall) {
+    advices.push({
+      id: "cash_flow_cautious_shortfall",
+      level: "warning",
+      title: "Không nên chi dựa vào khoản phải thu",
+      description: `Kịch bản thận trọng thiếu ${flowScenarios.cautious.shortfall.toLocaleString("vi-VN")}đ vào ${flowScenarios.cautious.lowestBalanceDate ?? "cuối tháng"}.`,
+      action: "Chỉ dùng khoản phải thu sau khi tiền thực sự về tài khoản."
+    });
+  } else if (flowScenarios) {
+    const historyStart = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+    const averageDailyFlexible = data.transactions
+      .filter(transaction => transaction.kind === "expense" && !transaction.recurringRuleId && !transaction.installmentId && !transaction.debtPaymentId && transaction.date >= historyStart)
+      .reduce((sum, transaction) => sum + transaction.amount, 0) / 90;
+    const reserve = averageDailyFlexible * 7;
+    if (reserve > 0 && flowScenarios.cautious.lowestBalance < reserve) {
+      advices.push({
+        id: "cash_flow_thin_buffer",
+        level: "warning",
+        title: "Quỹ đệm dòng tiền mỏng",
+        description: `Dòng tiền thận trọng có thể chạm ${Math.round(flowScenarios.cautious.lowestBalance).toLocaleString("vi-VN")}đ, thấp hơn mức đệm 7 ngày chi linh hoạt.`,
+        action: "Hoãn tăng ngân sách hoặc chuyển tiền vào mục tiêu cho đến sau các ngày nghĩa vụ lớn."
+      });
+    }
+  }
   
   // 1. Tình trạng tiền mặt tổng thể
   if (balance < 0) {
@@ -98,7 +145,6 @@ export function generateAdvice(data: AppData, currentMonth: string): Advice[] {
   }
 
   // 3. Phân tích Ngân sách
-  const budgets = budgetProgress(data.budgets, data.transactions, data.categories, currentMonth);
   let overBudgetCount = 0;
   let nearBudgetCount = 0;
   

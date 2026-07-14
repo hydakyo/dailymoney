@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Upload } from "lucide-react";
-import type { AppSettings, Budget, Category, Debt, EditableTransactionKind, GoalEntry, Installment, ObligationPriority, RecurringRule, SavingsGoal, Transaction } from "../../domain";
+import type { AppSettings, Budget, Category, Debt, EditableTransactionKind, FinancialClass, GoalEntry, Installment, ObligationPriority, RecurringRule, SavingsGoal, Transaction } from "../../domain";
 import { formatVnd, newId, today } from "../../domain";
 import { isNativeApp } from "../../notifications";
 import { supportsWebPush } from "../../web-push";
@@ -371,6 +371,7 @@ export function CategoryManager({ categories, onChange, onClose }: { categories:
   const [kind, setKind] = useState<Category["kind"]>("expense");
   const [name, setName] = useState("");
   const [color, setColor] = useState("#7c5cff");
+  const [financialClass, setFinancialClass] = useState<FinancialClass>("discretionary");
   const visible = categories.filter(category => category.kind === kind && !category.archived);
   return (
     <Modal title="Danh mục" onClose={onClose}>
@@ -381,12 +382,14 @@ export function CategoryManager({ categories, onChange, onClose }: { categories:
       <div className="inline-form">
         <input value={name} onChange={event => setName(event.target.value)} placeholder="Tên danh mục mới" />
         <input aria-label="Màu danh mục" type="color" value={color} onChange={event => setColor(event.target.value)} />
-        <button className="soft" disabled={!name.trim()} onClick={() => void (async () => { await db.categories.add({ id: newId(), kind, name: name.trim(), icon: "Circle", color, archived: false, builtIn: false, createdAt: new Date().toISOString() }); setName(""); await onChange(); })()}>Thêm</button>
+        <button className="soft" disabled={!name.trim()} onClick={() => void (async () => { await db.categories.add({ id: newId(), kind, name: name.trim(), icon: "Circle", color, archived: false, builtIn: false, financialClass: kind === "expense" ? financialClass : undefined, createdAt: new Date().toISOString() }); setName(""); await onChange(); })()}>Thêm</button>
       </div>
+      {kind === "expense" && <label className="field"><span>Nhóm tài chính cho danh mục mới</span><select value={financialClass} onChange={event => setFinancialClass(event.target.value as FinancialClass)}><option value="essential">Thiết yếu</option><option value="discretionary">Tùy chọn</option></select></label>}
       <div className="category-list">
         {visible.map(category => (
           <div className="category-manage-row" key={category.id}>
             <i style={{ background: category.color }} /><span>{category.name}</span>
+            {category.kind === "expense" && <select aria-label={`Nhóm tài chính ${category.name}`} value={category.financialClass ?? "discretionary"} onChange={event => void (async () => { await db.categories.update(category.id, { financialClass: event.target.value as FinancialClass }); await onChange(); })()}><option value="essential">Thiết yếu</option><option value="discretionary">Tùy chọn</option></select>}
             {!category.builtIn && <button className="text-button" onClick={() => void (async () => { await db.categories.update(category.id, { archived: true }); await onChange(); })()}>Lưu trữ</button>}
           </div>
         ))}

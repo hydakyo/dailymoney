@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDueDate, cashFlowForecast, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, installmentPeriods, monthForecast, monthTotals, normalizeInstallmentPayments, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "./finance";
+import { advanceDueDate, cashFlowForecast, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, installmentPeriods, monthForecast, monthTotals, normalizeInstallmentPayments, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods, recurringDatesInMonth } from "./finance";
 import type { Budget, Category, Debt, DebtPayment, GoalEntry, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 
 const transaction = (kind: Transaction["kind"], amount: number, date = "2026-07-13", walletId = "w1"): Transaction => ({
@@ -131,6 +131,45 @@ describe("finance calculations", () => {
     });
 
     expect(flow).toMatchObject({ endingBalance: 200_000, lowestBalance: -100_000, lowestBalanceDate: "2026-07-15", shortfall: 100_000 });
+  });
+
+  it("sets the safe flexible cap to zero when a fixed payment causes an early shortfall", () => {
+    const flow = cashFlowForecast({
+      balance: 100_000, month: "2026-07", occurrences: [], installments: [], budgets: [], debts: [], debtPayments: [],
+      transactions: [transaction("expense", 1_000, "2026-06-01")],
+      rules: [rule({ id: "bill", amount: 200_000, nextDueDate: "2026-07-15" }), rule({ id: "salary", kind: "income", amount: 300_000, nextDueDate: "2026-07-30" })],
+      asOf: new Date(2026, 6, 14)
+    });
+
+    expect(flow?.flexibleExpenseForecast).toBeGreaterThan(0);
+    expect(flow?.shortfall).toBeGreaterThan(100_000);
+    expect(flow?.dailyFlexibleAllowance).toBe(0);
+  });
+
+  it("jumps legacy daily rules directly to the forecast month", () => {
+    const legacyDaily = rule({ frequency: "daily", interval: 1, nextDueDate: "2000-01-01" });
+    const dates = recurringDatesInMonth(legacyDaily, "2026-07");
+
+    expect(dates).toHaveLength(31);
+    expect(dates[0]).toBe("2026-07-01");
+    expect(dates.at(-1)).toBe("2026-07-31");
+  });
+
+  it("bounds pending-occurrence generation for a stale daily rule", () => {
+    const result = dueOccurrences(rule({ frequency: "daily", interval: 1, nextDueDate: "2000-01-01" }), [], "2026-07-14");
+
+    expect(result.occurrences).toHaveLength(400);
+    expect(result.nextDueDate).toBe("2001-02-04");
+  });
+
+  it("does not treat many transactions on one day as high-confidence behavior data", () => {
+    const forecast = monthForecast({
+      balance: 0, month: "2026-07", rules: [], occurrences: [], installments: [], budgets: [],
+      transactions: Array.from({ length: 24 }, (_, index) => ({ ...transaction("expense", 20_000, "2026-06-01"), id: `coffee-${index}` })),
+      asOf: new Date(2026, 6, 14)
+    });
+
+    expect(forecast?.behaviorConfidence).toBe("low");
   });
 
   it("uses a cautious scenario that discounts uncertain receivables and carries obligation priority", () => {

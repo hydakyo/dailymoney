@@ -6,8 +6,8 @@ const data: AppData = {
   settings: { id: "settings", onboardingComplete: true, openingBalance: 0, currency: "VND", lockEnabled: false, createdAt: "", updatedAt: "" },
   wallets: [{ id: "wallet", name: "Ví chính", icon: "Wallet", color: "#000", initialBalance: 10_000_000, archived: false, createdAt: "", updatedAt: "" }],
   categories: [
-    { id: "food", kind: "expense", name: "Ăn uống", icon: "Utensils", color: "#000", archived: false, builtIn: true, createdAt: "" },
-    { id: "shopping", kind: "expense", name: "Mua sắm", icon: "ShoppingBag", color: "#000", archived: false, builtIn: true, createdAt: "" }
+    { id: "food", kind: "expense", name: "Ăn uống", icon: "Utensils", color: "#000", archived: false, builtIn: true, financialClass: "essential", createdAt: "" },
+    { id: "shopping", kind: "expense", name: "Mua sắm", icon: "ShoppingBag", color: "#000", archived: false, builtIn: true, financialClass: "discretionary", createdAt: "" }
   ],
   transactions: [
     { id: "food-apr", kind: "expense", amount: 1_200_000, categoryId: "food", walletId: "wallet", date: "2026-04-10", createdAt: "", updatedAt: "" },
@@ -65,5 +65,16 @@ describe("adaptive smart plan", () => {
     expect(plan.shortfall).toBeGreaterThan(0);
     expect(plan.priorityActions[0]).toMatchObject({ level: "danger" });
     expect(plan.lowestBalanceDate).toBeTruthy();
+  });
+
+  it("refuses to create or apply a forecast plan for a non-current month", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-14T12:00:00.000Z"));
+
+    const plan = generateSmartPlan(data, "2026-08");
+
+    expect(plan.isCurrentMonth).toBe(false);
+    expect(plan.suggestedBudgets).toEqual([]);
+    expect(plan.scenarios).toEqual([]);
   });
 });

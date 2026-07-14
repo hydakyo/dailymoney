@@ -79,4 +79,25 @@ describe("installment database migrations", () => {
       await disposeFixture(name, upgraded);
     }
   });
+
+  it("assigns editable financial classes to legacy expense categories", async () => {
+    const name = `daily-money-category-migration-${crypto.randomUUID()}`;
+    const legacy = new Dexie(name);
+    legacy.version(8).stores({ categories: "id, kind, archived" });
+    await legacy.open();
+    await legacy.table("categories").bulkAdd([
+      { id: "home", kind: "expense", name: "Nhà ở", icon: "House", color: "#000", archived: false, builtIn: true, createdAt: "" },
+      { id: "shopping", kind: "expense", name: "Mua sắm", icon: "Bag", color: "#000", archived: false, builtIn: true, createdAt: "" }
+    ]);
+    legacy.close();
+
+    const upgraded = new DailyMoneyDatabase(name);
+    await upgraded.open();
+    try {
+      expect(await upgraded.categories.get("home")).toMatchObject({ financialClass: "essential" });
+      expect(await upgraded.categories.get("shopping")).toMatchObject({ financialClass: "discretionary" });
+    } finally {
+      await disposeFixture(name, upgraded);
+    }
+  });
 });

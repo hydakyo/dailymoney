@@ -24,6 +24,7 @@ export function PlansView({
   onPay,
   onContribute,
   onSmartPlan,
+  canUseSmartPlan,
   onCopyPreviousBudgets,
   onToggleRule,
   onDeleteBudget,
@@ -46,6 +47,7 @@ export function PlansView({
   transactions: Transaction[];
   onAdd: (section: PlanSection) => void;
   onSmartPlan: () => void;
+  canUseSmartPlan: boolean;
   onCopyPreviousBudgets: () => Promise<void>;
   onPay: (debtId: string) => void;
   onContribute: (id: string) => void;
@@ -95,13 +97,13 @@ export function PlansView({
 
       {section === "budgets" && (
         <div className="stack">
-          <button className="card advisor-banner" style={{ background: "linear-gradient(to right, #6d5dfc, #8b5cf6)", color: "white", padding: "16px" }} onClick={onSmartPlan}>
+          <button className="card advisor-banner" style={{ background: "linear-gradient(to right, #6d5dfc, #8b5cf6)", color: "white", padding: "16px" }} onClick={onSmartPlan} disabled={!canUseSmartPlan}>
             <div className="row-between" style={{ alignItems: "center" }}>
               <div>
                 <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px" }}>
                   <Goal size={20} /> Kế hoạch Thông minh
                 </h3>
-                <p style={{ margin: "4px 0 0", fontSize: "0.9em", opacity: 0.9 }}>Theo forecast, nghĩa vụ và thói quen chi tiêu</p>
+                <p style={{ margin: "4px 0 0", fontSize: "0.9em", opacity: 0.9 }}>{canUseSmartPlan ? "Theo forecast, nghĩa vụ và thói quen chi tiêu" : "Chỉ khả dụng cho tháng hiện tại"}</p>
               </div>
               <Plus size={24} />
             </div>

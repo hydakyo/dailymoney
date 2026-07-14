@@ -5,6 +5,7 @@ export type EditableTransactionKind = Exclude<TransactionKind, "transfer">;
 export type DebtKind = "receivable" | "payable";
 export type Frequency = "daily" | "weekly" | "monthly" | "yearly";
 export type ObligationPriority = "essential" | "high" | "normal" | "flexible";
+export type FinancialClass = "essential" | "discretionary";
 
 export interface AppSettings {
   id: "settings";
@@ -40,6 +41,7 @@ export interface Category {
   color: string;
   archived: boolean;
   builtIn: boolean;
+  financialClass?: FinancialClass;
   createdAt: string;
 }
 
@@ -256,6 +258,7 @@ export const CategorySchema = z.object({
   color: z.string().max(20),
   archived: z.boolean(),
   builtIn: z.boolean(),
+  financialClass: z.enum(["essential", "discretionary"]).optional(),
   createdAt: z.string(),
 });
 

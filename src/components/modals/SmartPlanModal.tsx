@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { BrainCircuit, Sparkles, Check } from "lucide-react";
+import { BrainCircuit, Sparkles } from "lucide-react";
 import { formatVnd, newId } from "../../domain";
 import { Modal } from "../ui/Modal";
 import type { AppData } from "../../store";
@@ -19,34 +19,47 @@ export function SmartPlanModal({
 }) {
   const plan = generateSmartPlan(data, month);
   const [applying, setApplying] = useState(false);
+  const [error, setError] = useState("");
   const confidenceLabel = { low: "Đang học", medium: "Khá tin cậy", high: "Tin cậy" }[plan.behaviorConfidence];
+  const existingBudgets = new Map(data.budgets.filter(budget => budget.month === month).map(budget => [budget.categoryId, budget]));
+
+  if (!plan.isCurrentMonth) {
+    return (
+      <Modal title="Kế hoạch chi tiêu thích ứng" onClose={onClose}>
+        <div className="alert alert-danger">
+          <p>Kế hoạch thông minh chỉ hỗ trợ tháng đang diễn ra. Ứng dụng cần số dư hiện tại, các nghĩa vụ còn lại và lịch sử chi tiêu đến hôm nay để không tạo ngân sách sai cho tháng khác.</p>
+        </div>
+        <div className="modal-footer"><button className="primary" onClick={onClose}>Đã hiểu</button></div>
+      </Modal>
+    );
+  }
 
   const handleApply = async () => {
+    if (!plan.suggestedBudgets.length || !window.confirm("Áp dụng các thay đổi ngân sách đã xem trước? Ngân sách hiện có của các danh mục này sẽ được cập nhật.")) return;
     setApplying(true);
+    setError("");
     const now = new Date().toISOString();
-    
-    // We will auto-generate budgets for the suggested categories
-    await db.transaction("rw", db.budgets, async () => {
-      for (const item of plan.suggestedBudgets) {
-        const allBudgets = await db.budgets.toArray();
-        const existing = allBudgets.find(b => b.month === month && b.categoryId === item.categoryId);
-        if (existing) {
-          await db.budgets.update(existing.id, { limit: item.suggestedLimit, updatedAt: now });
-        } else {
-          await db.budgets.add({
-            id: newId(),
-            categoryId: item.categoryId,
-            month: month,
-            limit: item.suggestedLimit,
-            createdAt: now,
-            updatedAt: now
-          });
+    let applied = false;
+    try {
+      await db.transaction("rw", db.budgets, async () => {
+        const currentBudgets = await db.budgets.where("month").equals(month).toArray();
+        const currentByCategory = new Map(currentBudgets.map(budget => [budget.categoryId, budget]));
+        for (const item of plan.suggestedBudgets) {
+          const existing = currentByCategory.get(item.categoryId);
+          if (existing) {
+            await db.budgets.update(existing.id, { limit: item.suggestedLimit, updatedAt: now });
+          } else {
+            await db.budgets.add({ id: newId(), categoryId: item.categoryId, month, limit: item.suggestedLimit, createdAt: now, updatedAt: now });
+          }
         }
-      }
-    });
-
-    setApplying(false);
-    onApplied();
+      });
+      applied = true;
+    } catch {
+      setError("Không thể áp dụng ngân sách. Dữ liệu chưa bị thay đổi; vui lòng thử lại.");
+    } finally {
+      setApplying(false);
+    }
+    if (applied) onApplied();
   };
 
   return (
@@ -147,7 +160,7 @@ export function SmartPlanModal({
             <div className="breakdown-section">
               {plan.suggestedBudgets.map(item => (
                 <div className="row-between" key={item.categoryId}>
-                  <span>{item.categoryName}</span>
+                  <span>{item.categoryName}{existingBudgets.get(item.categoryId) ? ` · ${formatVnd(existingBudgets.get(item.categoryId)!.limit)} →` : " · Mới →"}</span>
                   <strong>{formatVnd(item.suggestedLimit)}</strong>
                 </div>
               ))}
@@ -168,6 +181,7 @@ export function SmartPlanModal({
           </button>
         )}
       </div>
+      {error && <p className="form-error">{error}</p>}
     </Modal>
   );
 }

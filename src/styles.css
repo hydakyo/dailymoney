@@ -572,6 +572,7 @@ button:focus-visible, a:focus-visible {
 .modal-head { margin-bottom: 18px; }
 .modal-head h2 { font-size: 20px; margin: 0; }
 .advisor-banner { width: 100%; text-align: left; }
+.advisor-banner:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .field {
   display: grid;
@@ -643,6 +644,7 @@ button:focus-visible, a:focus-visible {
   min-height: 17px;
   margin: 0 0 10px;
 }
+.category-manage-row select { flex: 0 1 112px; min-width: 0; padding: 6px; font-size: 12px; }
 
 .file-field {
   display: flex;
