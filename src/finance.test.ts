@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDueDate, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, monthForecast, monthTotals } from "./finance";
+import { advanceDueDate, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, installmentPeriods, monthForecast, monthTotals, oldestUnpaidInstallmentPeriod } from "./finance";
 import type { Budget, Category, Debt, DebtPayment, GoalEntry, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 
 const transaction = (kind: Transaction["kind"], amount: number, date = "2026-07-13", walletId = "w1"): Transaction => ({
@@ -87,5 +87,12 @@ describe("finance calculations", () => {
     expect(forecast).toMatchObject({ expectedIncome: 4_000_000, expectedRecurringExpense: 2_000_000, expectedInstallments: 500_000, remainingBudget: 1_000_000, projectedFlexibleExpense: 1_000_000 });
     expect(forecast?.projectedBalance).toBe(10_500_000);
     expect(monthForecast({ balance: 0, month: "2026-06", transactions: [], rules: [], occurrences: [], installments: [], budgets: [], asOf: new Date(2026, 6, 14) })).toBeNull();
+  });
+
+  it("does not forecast a future installment period and finds the oldest missed period", () => {
+    const installment = { id: "phone", name: "Phone", totalAmount: 3_000_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-08-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
+    expect(installmentPeriods(installment)).toEqual(["2026-08", "2026-09", "2026-10"]);
+    expect(oldestUnpaidInstallmentPeriod(installment, [])).toBe("2026-08");
+    expect(monthForecast({ balance: 1_000_000, month: "2026-07", transactions: [], rules: [], occurrences: [], installments: [installment], budgets: [], asOf: new Date(2026, 6, 14) })?.expectedInstallments).toBe(0);
   });
 });

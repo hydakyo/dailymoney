@@ -168,7 +168,7 @@ export function PlansView({
                 <Card key={item.id} className="plan-card">
                   <div className="row-between">
                     <strong>{item.name}</strong>
-                    <span className={paidMonths >= item.totalMonths ? "pill" : "pill expense"}>{paidMonths >= item.totalMonths ? "Đã hoàn tất" : paymentPeriod === currentPeriod ? "Cần xác nhận" : `Trả bù kỳ ${paymentPeriod ?? ""}`}</span>
+                    <span className={paidMonths >= item.totalMonths ? "pill" : paymentPeriod && paymentPeriod < currentPeriod ? "pill expense" : "pill"}>{paidMonths >= item.totalMonths ? "Đã hoàn tất" : paymentPeriod && paymentPeriod < currentPeriod ? `Trả bù kỳ ${paymentPeriod}` : paymentPeriod === currentPeriod ? "Đến kỳ thanh toán" : `Chưa đến kỳ ${paymentPeriod ?? ""}`}</span>
                   </div>
                   <h3>{formatVnd(item.monthlyAmount)} <small className="muted">/ tháng</small></h3>
                   <div className="progress" style={{ marginTop: 12 }}>
@@ -181,7 +181,7 @@ export function PlansView({
                   </div>
                   <div className="plan-actions" style={{ marginTop: 8 }}>
                     <p>Đã xác nhận: {paidMonths}/{item.totalMonths} kỳ · Hạn ngày {item.dueDate}</p>
-                    {paidMonths < item.totalMonths && paymentPeriod && <button className="soft" onClick={() => void onPayInstallment(item)}>Xác nhận {paymentPeriod === currentPeriod ? "trả kỳ này" : `trả bù ${paymentPeriod}`}</button>}
+                    {paidMonths < item.totalMonths && paymentPeriod && paymentPeriod <= currentPeriod && <button className="soft" onClick={() => void onPayInstallment(item)}>Xác nhận {paymentPeriod === currentPeriod ? "trả kỳ này" : `trả bù ${paymentPeriod}`}</button>}
                     <button
                       className="icon-button subtle"
                       aria-label="Xóa khoản trả góp"

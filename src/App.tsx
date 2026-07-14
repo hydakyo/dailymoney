@@ -345,6 +345,10 @@ export default function App() {
                 window.alert("Khoản trả góp này đã thanh toán đủ số kỳ.");
                 return;
               }
+              if (installmentPeriod > today().slice(0, 7)) {
+                window.alert(`Chưa đến kỳ ${installmentPeriod}.`);
+                return;
+              }
               const existingPayment = await db.transactions.where("[installmentId+installmentPeriod]").equals([installment.id, installmentPeriod]).first();
               if (existingPayment) {
                 window.alert("Kỳ trả góp tháng này đã được xác nhận.");

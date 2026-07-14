@@ -121,7 +121,8 @@ export function monthForecast({
   }
 
   const expectedInstallments = installments.reduce((sum, installment) => {
-    return installment.closedAt || !oldestUnpaidInstallmentPeriod(installment, transactions) ? sum : sum + installment.monthlyAmount;
+    const unpaidPeriod = oldestUnpaidInstallmentPeriod(installment, transactions);
+    return installment.closedAt || !unpaidPeriod || unpaidPeriod > month ? sum : sum + installment.monthlyAmount;
   }, 0);
 
   return {
