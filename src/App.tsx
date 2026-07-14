@@ -3,7 +3,7 @@ import { BarChart3, ClipboardList, ReceiptText, Settings, Home, CirclePlus, Wall
 import { decryptBackup, downloadFile, encryptBackup, transactionsCsv, type EncryptedBackup } from "./backup";
 import { db, exportBackup, restoreBackup } from "./db";
 import { currentMonth, newId, today } from "./domain";
-import type { RecurringRule, Transaction } from "./domain";
+import type { EditableTransactionKind, RecurringRule, Transaction } from "./domain";
 import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, monthTotals } from "./finance";
 import { clearDailyReminder, isNativeApp, setDailyReminder } from "./notifications";
 import { clearWebPushReminder, setWebPushReminder, supportsWebPush } from "./web-push";
@@ -22,12 +22,13 @@ import { hashPin, toBase64 } from "./utils";
 import { generateAdvice } from "./advisor";
 import { BackupForm, BudgetForm, CategoryManager, DebtForm, DebtPaymentForm, GoalEntryForm, GoalForm, InstallmentForm, OpeningBalanceForm, PinForm, RecurringForm, ReminderForm, RestoreForm } from "./components/modals/Forms";
 import { SmartPlanModal } from "./components/modals/SmartPlanModal";
+import { primaryWallet, requirePrimaryWalletId } from "./wallet";
 
 type Tab = "home" | "transactions" | "plans" | "reports" | "settings";
 type PlanSection = "budgets" | "debts" | "goals" | "installments" | "recurring";
 type TransactionInput = {
   id?: string;
-  kind: Transaction["kind"];
+  kind: EditableTransactionKind;
   amount: number;
   categoryId: string;
   date: string;
@@ -92,13 +93,19 @@ export default function App() {
   if (!data.settings.onboardingComplete) return <Onboarding onDone={refresh} />;
   if (locked) return <Unlock settings={data.settings} onUnlocked={() => setLocked(false)} />;
 
+  const currentPrimaryWallet = primaryWallet(data.wallets);
+  const primaryWalletId = requirePrimaryWalletId(data.wallets);
+
   const addTransaction = async (input: TransactionInput) => {
     const now = new Date().toISOString();
+    const kind: EditableTransactionKind = input.kind === "income" ? "income" : "expense";
     if (input.id) {
       await db.transactions.update(input.id, {
-        kind: input.kind,
+        kind,
         amount: input.amount,
         categoryId: input.categoryId,
+        walletId: primaryWalletId,
+        toWalletId: undefined,
         date: input.date,
         note: input.note,
         updatedAt: now
@@ -112,10 +119,10 @@ export default function App() {
     await db.transaction("rw", db.transactions, db.recurringRules, async () => {
       const transaction: Transaction = {
         id: newId(),
-        kind: input.kind,
+        kind,
         amount: input.amount,
         categoryId: input.categoryId,
-        walletId: data.wallets[0]?.id || "",
+        walletId: primaryWalletId,
         date: input.date,
         note: input.note,
         createdAt: now,
@@ -125,10 +132,10 @@ export default function App() {
       if (input.recurring) {
         const draft: RecurringRule = {
           id: newId(),
-          kind: input.kind,
+          kind,
           amount: input.amount,
           categoryId: input.categoryId,
-          walletId: data.wallets[0]?.id || "",
+          walletId: primaryWalletId,
           note: input.note,
           frequency: input.recurring.frequency,
           interval: input.recurring.interval,
@@ -153,6 +160,15 @@ export default function App() {
     const rule = data.rules.find(item => item.id === occurrence.ruleId);
     if (!rule) return;
     const now = new Date().toISOString();
+    if (rule.kind === "transfer") {
+      await db.transaction("rw", db.recurringRules, db.recurringOccurrences, async () => {
+        await db.recurringRules.update(rule.id, { active: false, updatedAt: now });
+        await db.recurringOccurrences.update(id, { status: "skipped", updatedAt: now });
+      });
+      window.alert("Quy tắc chuyển ví cũ đã được tắt vì Daily Money hiện dùng một ví.");
+      await refresh();
+      return;
+    }
     await db.transaction("rw", db.recurringOccurrences, db.transactions, async () => {
       if (skip) {
         await db.recurringOccurrences.update(id, { status: "skipped", updatedAt: now });
@@ -163,8 +179,7 @@ export default function App() {
           kind: rule.kind,
           amount: rule.amount,
           categoryId: rule.categoryId,
-          walletId: rule.walletId || data.wallets[0]?.id || "",
-          toWalletId: rule.toWalletId,
+          walletId: primaryWalletId,
           date: occurrence.dueDate,
           note: rule.note,
           recurringRuleId: rule.id,
@@ -275,7 +290,7 @@ export default function App() {
         )}
         {tab === "settings" && (
           <SettingsView
-            settings={data.settings} wallets={data.wallets} categories={data.categories} transactions={data.transactions}
+            settings={data.settings} primaryBalance={currentPrimaryWallet?.initialBalance ?? data.settings.openingBalance} categories={data.categories} transactions={data.transactions}
             onOpeningBalance={() => setModal("opening-balance")} onCategories={() => setModal("categories")}
             onReminder={() => setModal("reminder")} onBackup={() => setModal("backup")} onRestore={() => setModal("restore")}
             onPin={() => setModal("pin")}
@@ -352,7 +367,7 @@ export default function App() {
             const category = data.categories.find(item => item.kind === (debt.kind === "payable" ? "expense" : "income") && !item.archived) ?? data.categories[0];
             const transactionId = newId();
             await db.transaction("rw", db.transactions, db.debtPayments, db.debts, async () => {
-              await db.transactions.add({ id: transactionId, kind: debt.kind === "payable" ? "expense" : "income", amount: value.amount, categoryId: category.id, walletId: data.wallets[0]?.id || "", date: value.date, note: value.note || `Thanh toán nợ: ${debt.person}`, debtPaymentId: value.id, createdAt: now, updatedAt: now });
+              await db.transactions.add({ id: transactionId, kind: debt.kind === "payable" ? "expense" : "income", amount: value.amount, categoryId: category.id, walletId: primaryWalletId, date: value.date, note: value.note || `Thanh toán nợ: ${debt.person}`, debtPaymentId: value.id, createdAt: now, updatedAt: now });
               await db.debtPayments.add({ ...value, debtId: debt.id, transactionId, createdAt: now });
               if (value.amount >= debtOutstanding(debt, data.payments)) {
                 await db.debts.update(debt.id, { closedAt: now, updatedAt: now });
@@ -365,14 +380,14 @@ export default function App() {
       )}
       {modal === "goal" && <GoalForm onClose={() => setModal(null)} onSubmit={async value => { await db.goals.add({ id: newId(), ...value, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "goal-entry" && selectedGoalId && <GoalEntryForm goal={data.goals.find(item => item.id === selectedGoalId)!} onClose={() => setModal(null)} onSubmit={async value => { await db.goalEntries.add({ id: newId(), goalId: selectedGoalId, ...value, createdAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
-      {modal === "installment" && <InstallmentForm categories={data.categories} wallets={data.wallets} onClose={() => setModal(null)} onSubmit={async (value: any) => { await db.installments.add({ id: newId(), ...value, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
-      {modal === "recurring" && <RecurringForm categories={data.categories} wallets={data.wallets} onClose={() => setModal(null)} onSubmit={async value => { await db.recurringRules.add({ id: newId(), ...value, active: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
+      {modal === "installment" && <InstallmentForm categories={data.categories} primaryWalletId={primaryWalletId} onClose={() => setModal(null)} onSubmit={async (value: any) => { await db.installments.add({ id: newId(), ...value, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
+      {modal === "recurring" && <RecurringForm categories={data.categories} primaryWalletId={primaryWalletId} onClose={() => setModal(null)} onSubmit={async value => { await db.recurringRules.add({ id: newId(), ...value, active: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "backup" && <BackupForm onClose={() => setModal(null)} onDone={async password => { const encrypted = await encryptBackup(await exportBackup(), password); downloadFile(`daily-money-backup-${today()}.dailymoney`, JSON.stringify(encrypted), "application/json"); await db.settings.update("settings", { lastBackupAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "restore" && <RestoreForm inputRef={fileRef} onClose={() => setModal(null)} onRestore={async (file, password) => { if (file.size > 20 * 1024 * 1024) return alert("File backup quá lớn (vượt quá 20MB)."); const encrypted = JSON.parse(await file.text()); const backup = await decryptBackup(encrypted, password); if (!window.confirm(`Khôi phục ${backup.transactions?.length || 0} giao dịch? Dữ liệu hiện tại trên thiết bị sẽ bị thay thế.`)) return; const preRestorePayload = await exportBackup(); const preRestoreEncrypted = await encryptBackup(preRestorePayload, password); alert("Hệ thống chuẩn bị tải xuống một file sao lưu an toàn của dữ liệu HIỆN TẠI.\nLưu ý: File này sẽ dùng chung mật khẩu với file bạn đang khôi phục."); downloadFile(`daily-money-pre-restore-${today()}.dailymoney`, JSON.stringify(preRestoreEncrypted), "application/json"); if (!window.confirm("Ứng dụng đã yêu cầu trình duyệt tải bản lưu phòng hờ. Hãy kiểm tra file đã xuất hiện trong thư mục Tải xuống trước khi bấm OK tiếp tục.")) return; await restoreBackup(backup); setModal(null); await refresh(); }} />}
       {modal === "smart-plan" && <SmartPlanModal data={data} month={month} onClose={() => setModal(null)} onApplied={async () => { setModal(null); await refresh(); }} />}
       {modal === "pin" && <PinForm settings={data.settings} onClose={() => setModal(null)} onSave={async pin => { const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))); const pinHash = await hashPin(pin, salt); await db.settings.update("settings", { lockEnabled: true, pinHash, pinSalt: salt, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} onDisable={async () => { await db.settings.update("settings", { lockEnabled: false, pinHash: undefined, pinSalt: undefined, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "categories" && <CategoryManager categories={data.categories} onClose={() => setModal(null)} onChange={refresh} />}
-      {modal === "opening-balance" && <OpeningBalanceForm current={data.wallets[0]?.initialBalance ?? data.settings.openingBalance} onClose={() => setModal(null)} onSave={async openingBalance => { await db.settings.update("settings", { openingBalance, updatedAt: new Date().toISOString() }); if (data.wallets.length > 0) { await db.wallets.update(data.wallets[0].id, { initialBalance: openingBalance, updatedAt: new Date().toISOString() }); } setModal(null); await refresh(); }} />}
+      {modal === "opening-balance" && <OpeningBalanceForm current={currentPrimaryWallet?.initialBalance ?? data.settings.openingBalance} onClose={() => setModal(null)} onSave={async openingBalance => { await db.settings.update("settings", { openingBalance, updatedAt: new Date().toISOString() }); await db.wallets.update(primaryWalletId, { initialBalance: openingBalance, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "reminder" && <ReminderForm settings={data.settings} onClose={() => setModal(null)} onSave={async (enabled, reminderTime) => { if (isNativeApp()) { if (enabled) await setDailyReminder(reminderTime); else await clearDailyReminder(); } else if (enabled) await setWebPushReminder(reminderTime); else await clearWebPushReminder(); await db.settings.update("settings", { reminderEnabled: enabled, reminderTime, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
     </main>
   );

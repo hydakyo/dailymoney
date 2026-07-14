@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export type TransactionKind = "income" | "expense" | "transfer";
+export type EditableTransactionKind = Exclude<TransactionKind, "transfer">;
 export type DebtKind = "receivable" | "payable";
 export type Frequency = "daily" | "weekly" | "monthly" | "yearly";
 

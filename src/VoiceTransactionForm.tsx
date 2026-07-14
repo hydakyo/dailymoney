@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Mic, Square, X, ClipboardPaste } from "lucide-react";
-import type { Category, RecurringRule, Transaction, Wallet } from "./domain";
+import type { Category, EditableTransactionKind, RecurringRule, Transaction } from "./domain";
 import { today } from "./domain";
 import { parseVoiceTransaction } from "./voice";
 import { parseBankSms } from "./bank-parser";
 
 type TransactionInput = {
   id?: string;
-  kind: Transaction["kind"];
+  kind: EditableTransactionKind;
   amount: number;
   categoryId: string;
   date: string;
@@ -32,7 +32,7 @@ export function VoiceTransactionForm({
   onSubmit: (value: TransactionInput) => Promise<void>;
   onClose: () => void;
 }) {
-  const [kind, setKind] = useState<Transaction["kind"]>(transaction?.kind ?? "expense");
+  const [kind, setKind] = useState<EditableTransactionKind>(transaction?.kind === "income" ? "income" : "expense");
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : "");
   const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? "");
   const [date, setDate] = useState(transaction?.date ?? today());
@@ -53,7 +53,7 @@ export function VoiceTransactionForm({
   const relevant = useMemo(() => categories.filter(category => category.kind === kind && !category.archived), [categories, kind]);
 
   useEffect(() => {
-    if (kind !== "transfer" && !relevant.some(category => category.id === categoryId)) {
+    if (!relevant.some(category => category.id === categoryId)) {
       setCategoryId(relevant[0]?.id ?? "");
     }
   }, [categoryId, relevant, kind]);
@@ -62,7 +62,7 @@ export function VoiceTransactionForm({
 
   const applyTranscript = (text: string) => {
     const parsed = parseVoiceTransaction(text, categories);
-    setKind(parsed.kind);
+    setKind(parsed.kind === "income" ? "income" : "expense");
     setAmount(parsed.amount ? String(parsed.amount) : "");
     setCategoryId(parsed.categoryId);
     setDate(parsed.date);
@@ -121,7 +121,7 @@ export function VoiceTransactionForm({
 
   const handleSmsPaste = () => {
     const parsed = parseBankSms(pastedSms, categories);
-    if (parsed.kind) setKind(parsed.kind);
+    if (parsed.kind) setKind(parsed.kind === "income" ? "income" : "expense");
     if (parsed.amount) setAmount(String(parsed.amount));
     if (parsed.categoryId) setCategoryId(parsed.categoryId);
     if (parsed.date) setDate(parsed.date);

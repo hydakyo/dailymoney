@@ -1,11 +1,13 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { ChevronRight, WalletCards } from "lucide-react";
 import { db } from "../../db";
 import { AmountInput } from "../ui/AmountInput";
+import { requirePrimaryWalletId } from "../../wallet";
 
 export function Onboarding({ onDone }: { onDone: () => Promise<void> }) {
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   return (
     <main className="onboarding">
@@ -26,25 +28,33 @@ export function Onboarding({ onDone }: { onDone: () => Promise<void> }) {
         disabled={busy}
         onClick={async () => {
           setBusy(true);
-          const balance = Number(amount || 0);
-          await db.settings.update("settings", {
-            onboardingComplete: true,
-            openingBalance: balance,
-            updatedAt: new Date().toISOString()
-          });
-          // Cập nhật ví chính (ví đầu tiên) với số dư ban đầu
-          const wallets = await db.wallets.toArray();
-          if (wallets.length > 0) {
-            await db.wallets.update(wallets[0].id, {
-              initialBalance: balance,
-              updatedAt: new Date().toISOString()
+          setError("");
+          try {
+            const balance = Number(amount || 0);
+            const primaryWalletId = requirePrimaryWalletId(await db.wallets.toArray());
+            const now = new Date().toISOString();
+            await db.transaction("rw", db.settings, db.wallets, async () => {
+              await db.settings.update("settings", {
+                onboardingComplete: true,
+                openingBalance: balance,
+                updatedAt: now
+              });
+              await db.wallets.update(primaryWalletId, {
+                initialBalance: balance,
+                updatedAt: now
+              });
             });
+            await onDone();
+          } catch (value) {
+            setError(value instanceof Error ? value.message : "Không thể khởi tạo ví chính.");
+          } finally {
+            setBusy(false);
           }
-          await onDone();
         }}
       >
         Bắt đầu sử dụng <ChevronRight size={20} />
       </button>
+      {error && <p className="form-error">{error}</p>}
     </main>
   );
 }

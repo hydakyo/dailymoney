@@ -1,5 +1,5 @@
 import { ChevronRight, KeyRound, BellRing, Download, Upload, ReceiptText, WalletCards, ClipboardList } from "lucide-react";
-import type { AppSettings, Category, Transaction, Wallet } from "../../domain";
+import type { AppSettings, Category, Transaction } from "../../domain";
 import { formatVnd } from "../../domain";
 import { isNativeApp } from "../../notifications";
 import { supportsWebPush } from "../../web-push";
@@ -7,7 +7,7 @@ import { Card } from "../ui/Card";
 
 export function SettingsView({
   settings,
-  wallets,
+  primaryBalance,
   transactions,
   categories,
   onOpeningBalance,
@@ -20,7 +20,7 @@ export function SettingsView({
   onReset,
 }: {
   settings: AppSettings;
-  wallets: Wallet[];
+  primaryBalance: number;
   transactions: Transaction[];
   categories: Category[];
   onOpeningBalance: () => void;
@@ -110,7 +110,7 @@ export function SettingsView({
           <WalletCards />
           <span>
             <strong>Số dư đầu kỳ</strong>
-            <small>{formatVnd(wallets[0]?.initialBalance ?? settings.openingBalance)}</small>
+            <small>{formatVnd(primaryBalance)}</small>
           </span>
           <ChevronRight />
         </button>

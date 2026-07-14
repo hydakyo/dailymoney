@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Upload } from "lucide-react";
-import type { AppSettings, Budget, Category, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction, Wallet } from "../../domain";
+import type { AppSettings, Budget, Category, Debt, EditableTransactionKind, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction } from "../../domain";
 import { formatVnd, newId, today } from "../../domain";
 import { isNativeApp } from "../../notifications";
 import { supportsWebPush } from "../../web-push";
@@ -19,7 +19,7 @@ export function TransactionForm({
   onSubmit: (value: any) => Promise<void>;
   onClose: () => void;
 }) {
-  const [kind, setKind] = useState<Transaction["kind"]>(transaction?.kind ?? "expense");
+  const [kind, setKind] = useState<EditableTransactionKind>(transaction?.kind === "income" ? "income" : "expense");
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : "");
   const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? "");
   const [date, setDate] = useState(transaction?.date ?? today());
@@ -175,7 +175,7 @@ export function GoalEntryForm({ goal, onSubmit, onClose }: { goal: SavingsGoal; 
   );
 }
 
-export function InstallmentForm({ categories, wallets, onSubmit, onClose }: { categories: Category[]; wallets: Wallet[]; onSubmit: (value: Omit<Installment, "id" | "createdAt" | "updatedAt">) => Promise<void>; onClose: () => void }) {
+export function InstallmentForm({ categories, primaryWalletId, onSubmit, onClose }: { categories: Category[]; primaryWalletId: string; onSubmit: (value: Omit<Installment, "id" | "createdAt" | "updatedAt">) => Promise<void>; onClose: () => void }) {
   const [name, setName] = useState("");
   const [totalAmount, setTotalAmount] = useState("");
   const [totalMonths, setTotalMonths] = useState("");
@@ -215,7 +215,7 @@ export function InstallmentForm({ categories, wallets, onSubmit, onClose }: { ca
         startDate, 
         dueDate: Number(dueDate), 
         categoryId, 
-        walletId: wallets[0]?.id || "" 
+        walletId: primaryWalletId
       })}>
         Tạo khoản trả góp
       </button>
@@ -223,8 +223,8 @@ export function InstallmentForm({ categories, wallets, onSubmit, onClose }: { ca
   );
 }
 
-export function RecurringForm({ categories, wallets, onSubmit, onClose }: { categories: Category[]; wallets: Wallet[]; onSubmit: (value: Omit<RecurringRule, "id" | "active" | "createdAt" | "updatedAt">) => Promise<void>; onClose: () => void }) {
-  const [kind, setKind] = useState<Transaction["kind"]>("expense");
+export function RecurringForm({ categories, primaryWalletId, onSubmit, onClose }: { categories: Category[]; primaryWalletId: string; onSubmit: (value: Omit<RecurringRule, "id" | "active" | "createdAt" | "updatedAt">) => Promise<void>; onClose: () => void }) {
+  const [kind, setKind] = useState<EditableTransactionKind>("expense");
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [frequency, setFrequency] = useState<RecurringRule["frequency"]>("monthly");
@@ -251,7 +251,7 @@ export function RecurringForm({ categories, wallets, onSubmit, onClose }: { cate
         </select>
       </label>
       <label className="field"><span>Ngày bắt đầu</span><input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
-      <button className="primary full" disabled={!amount || !categoryId} onClick={() => void onSubmit({ kind, amount: Number(amount), categoryId, walletId: wallets[0]?.id || "", frequency, interval: 1, dayOfMonth: Number(date.slice(-2)), startDate: date, nextDueDate: date })}>Tạo lịch lặp</button>
+      <button className="primary full" disabled={!amount || !categoryId} onClick={() => void onSubmit({ kind, amount: Number(amount), categoryId, walletId: primaryWalletId, frequency, interval: 1, dayOfMonth: Number(date.slice(-2)), startDate: date, nextDueDate: date })}>Tạo lịch lặp</button>
     </Modal>
   );
 }
