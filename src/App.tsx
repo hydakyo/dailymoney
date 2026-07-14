@@ -408,9 +408,6 @@ export default function App() {
         )}
       </div>
 
-      <button className="fab" onClick={() => setModal("transaction")} aria-label="Thêm giao dịch">
-        <CirclePlus size={28} />
-      </button>
 
       <nav className="tabbar" aria-label="Điều hướng chính">
         {([
