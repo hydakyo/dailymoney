@@ -48,6 +48,7 @@ describe("adaptive smart plan", () => {
     expect(plan.upcomingObligations[0]).toMatchObject({ priority: "high", priorityLabel: "Cao" });
     expect(food).toMatchObject({ spent: 0, fixedRemaining: 1_000_000 });
     expect(food?.flexibleRemaining).toBeGreaterThan(0);
+    expect(plan.suggestedBudgets.reduce((sum, item) => sum + item.flexibleRemaining, 0)).toBeLessThanOrEqual(Math.floor(plan.flexibleAllowance));
     const paymentDay = plan.dailyPlan.find(day => day.date === "2026-07-20");
     expect(paymentDay).toMatchObject({ fixedExpense: 1_500_000, flexibleCap: plan.dailyFlexibleCap });
     expect(paymentDay?.events).toEqual(expect.arrayContaining([
@@ -77,15 +78,26 @@ describe("adaptive smart plan", () => {
     expect(plan.flexibleAllowance).toBe(0);
   });
 
-  it("defaults to rescue when cautious spending cannot preserve the reserve floor", () => {
+  it("keeps cautious as the default when reducing flexible spending can preserve the reserve", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-14T12:00:00.000Z"));
-    const pressured: AppData = { ...data, wallets: [{ ...data.wallets[0], initialBalance: 2_500_000 }] };
+    const pressured: AppData = {
+      ...data,
+      wallets: [{ ...data.wallets[0], initialBalance: 6_900_000 }],
+      debts: [
+        ...data.debts,
+        { id: "receivable", kind: "receivable", person: "Binh", principal: 1_000_000, openedDate: "2026-07-01", dueDate: "2026-07-15", collectionConfidence: "likely", createdAt: "", updatedAt: "" }
+      ]
+    };
 
     const plan = generateSmartPlan(pressured, "2026-07");
+    const rescue = generateSmartPlan(pressured, "2026-07", "rescue");
 
-    expect(plan.defaultScenario).toBe("rescue");
-    expect(plan.selectedScenario).toBe("rescue");
+    expect(plan.scenarios.find(item => item.id === "cautious")?.shortfall).toBeGreaterThan(0);
+    expect(plan.defaultScenario).toBe("cautious");
+    expect(plan.selectedScenario).toBe("cautious");
+    expect(plan.isBalanced).toBe(true);
+    expect(rescue.isBalanced).toBe(false);
     expect(plan.reserveFloor).toBeGreaterThan(0);
   });
 

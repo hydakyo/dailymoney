@@ -174,8 +174,12 @@ export function generateSmartPlan(data: AppData, currentMonth: string, selectedS
     reserveFloor
   };
   const flowScenarios = cashFlowScenarios(cashFlowInput);
-  const defaultScenario: SmartPlanScenarioId = flowScenarios?.cautious.shortfall === 0 && flowScenarios.cautious.lowestBalanceWithoutFlexible >= reserveFloor
+  const cautiousStructurallyBalanced = (flowScenarios?.cautious.lowestBalanceWithoutFlexible ?? Number.NEGATIVE_INFINITY) >= reserveFloor;
+  const rescueStructurallyBalanced = (flowScenarios?.rescue.lowestBalanceWithoutFlexible ?? Number.NEGATIVE_INFINITY) >= reserveFloor;
+  const defaultScenario: SmartPlanScenarioId = cautiousStructurallyBalanced
     ? "cautious"
+    : rescueStructurallyBalanced
+    ? "rescue"
     : "rescue";
   const selectedScenario = selectedScenarioInput ?? defaultScenario;
   const selectedFlow = flowScenarios?.[selectedScenario];
@@ -222,16 +226,33 @@ export function generateSmartPlan(data: AppData, currentMonth: string, selectedS
     fixedRemainingByCategory.set(event.categoryId, (fixedRemainingByCategory.get(event.categoryId) ?? 0) + Math.abs(event.amount));
   }
   const baselineRemaining = [...baselineRemainingByCategory.values()].reduce((sum, amount) => sum + amount, 0);
-  const suggestedBudgets: SuggestedBudget[] = [];
   const plannedCategoryIds = new Set([...baselineRemainingByCategory.keys(), ...fixedRemainingByCategory.keys()]);
-  for (const categoryId of plannedCategoryIds) {
+  const plannedCategories = [...plannedCategoryIds].flatMap(categoryId => {
     const category = categoryById.get(categoryId);
-    if (!category) continue;
+    if (!category) return [];
     const baseline = baselineRemainingByCategory.get(categoryId) ?? 0;
-    const fixedRemaining = fixedRemainingByCategory.get(categoryId) ?? 0;
-    const flexibleAllocation = baselineRemaining > 0 ? flexibleAllowance * (baseline / baselineRemaining) : 0;
-    const spent = allCurrentExpenseByCategory.get(categoryId) ?? 0;
-    const suggestedLimit = roundUpToThousand(spent + fixedRemaining + flexibleAllocation);
+    return [{ categoryId, category, baseline, fixedRemaining: Math.ceil(fixedRemainingByCategory.get(categoryId) ?? 0), spent: allCurrentExpenseByCategory.get(categoryId) ?? 0 }];
+  });
+  const targetFlexibleEnvelope = Math.floor(flexibleAllowance);
+  const flexibleAllocationByCategory = new Map<string, number>();
+  const allocationCandidates = plannedCategories
+    .filter(item => item.baseline > 0)
+    .map(item => ({ ...item, exact: baselineRemaining > 0 ? targetFlexibleEnvelope * (item.baseline / baselineRemaining) : 0 }));
+  let allocatedFlexible = 0;
+  for (const item of allocationCandidates) {
+    const allocation = Math.floor(item.exact);
+    flexibleAllocationByCategory.set(item.categoryId, allocation);
+    allocatedFlexible += allocation;
+  }
+  for (const item of [...allocationCandidates].sort((left, right) => (right.exact % 1) - (left.exact % 1) || right.baseline - left.baseline)) {
+    if (allocatedFlexible >= targetFlexibleEnvelope) break;
+    flexibleAllocationByCategory.set(item.categoryId, (flexibleAllocationByCategory.get(item.categoryId) ?? 0) + 1);
+    allocatedFlexible += 1;
+  }
+  const suggestedBudgets: SuggestedBudget[] = [];
+  for (const { categoryId, category, fixedRemaining, spent } of plannedCategories) {
+    const flexibleAllocation = flexibleAllocationByCategory.get(categoryId) ?? 0;
+    const suggestedLimit = spent + fixedRemaining + flexibleAllocation;
     if (suggestedLimit <= 0) continue;
     suggestedBudgets.push({
       categoryId,
@@ -239,8 +260,8 @@ export function generateSmartPlan(data: AppData, currentMonth: string, selectedS
       suggestedLimit,
       kind: categoryKind(category),
       spent,
-      fixedRemaining: Math.ceil(fixedRemaining),
-      flexibleRemaining: Math.max(0, suggestedLimit - spent - Math.ceil(fixedRemaining)),
+      fixedRemaining,
+      flexibleRemaining: flexibleAllocation,
       dailyFlexibleCap: daysRemaining ? Math.floor(flexibleAllocation / daysRemaining) : 0
     });
   }

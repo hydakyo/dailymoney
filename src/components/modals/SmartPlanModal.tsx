@@ -73,7 +73,7 @@ export function SmartPlanModal({ data, month, onClose, onApplied }: { data: AppD
         <div className="plan-breakdown">
           <h4>Chọn kịch bản để lập ngân sách</h4>
           <div className="scenario-grid">
-            {plan.scenarios.map(item => <button type="button" className={`scenario-card ${item.shortfall > 0 ? "at-risk" : ""} ${scenario === item.id ? "selected" : ""}`} key={item.id} onClick={() => setScenario(item.id)}><strong>{item.label}</strong><span>{item.description}</span><b className={item.endingBalance < 0 ? "text-danger" : "text-success"}>{formatVnd(item.endingBalance)}</b><small>Rủi ro: {formatVnd(item.shortfall)}{item.lowestBalanceDate ? ` · ${formatDateVi(item.lowestBalanceDate)}` : ""}</small></button>)}
+            {plan.scenarios.map(item => <button type="button" className={`scenario-card ${item.shortfall > 0 ? "at-risk" : ""} ${scenario === item.id ? "selected" : ""}`} key={item.id} onClick={() => setScenario(item.id)}><strong>{item.label}</strong><span>{item.description}</span><b className={item.endingBalance < 0 ? "text-danger" : "text-success"}>{formatVnd(item.endingBalance)}</b><small>Thiếu hụt nếu giữ nhịp chi hiện tại: {formatVnd(item.shortfall)}{item.lowestBalanceDate ? ` · ${formatDateVi(item.lowestBalanceDate)}` : ""}</small></button>)}
           </div>
         </div>
 
