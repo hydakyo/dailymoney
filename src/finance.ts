@@ -86,8 +86,10 @@ export function monthForecast({
   const daysInMonth = new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate();
   const daysRemaining = Math.max(0, daysInMonth - asOf.getDate());
   const elapsedDays = Math.max(1, asOf.getDate());
-  const currentExpense = monthTotals(transactions, month).expense;
-  const averageDailyExpense = currentExpense / elapsedDays;
+  const flexibleExpense = transactions
+    .filter(transaction => transaction.kind === "expense" && transaction.date.startsWith(month) && !transaction.recurringRuleId && !transaction.installmentId && !transaction.debtPaymentId)
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const averageDailyExpense = flexibleExpense / elapsedDays;
   const remainingBudget = budgets.reduce((sum, budget) => sum + Math.max(0, budget.limit - budget.spent), 0);
   const uncappedFlexibleExpense = averageDailyExpense * daysRemaining;
   const projectedFlexibleExpense = budgets.length ? Math.min(uncappedFlexibleExpense, remainingBudget) : uncappedFlexibleExpense;
@@ -105,8 +107,9 @@ export function monthForecast({
 
   const expectedInstallments = installments.reduce((sum, installment) => {
     if (installment.closedAt || installment.startDate > `${month}-${String(daysInMonth).padStart(2, "0")}`) return sum;
+    if (transactions.some(transaction => transaction.installmentId === installment.id && transaction.installmentPeriod === month)) return sum;
     const dueDate = Math.min(installment.dueDate, daysInMonth);
-    return dueDate > asOf.getDate() ? sum + installment.monthlyAmount : sum;
+    return sum + installment.monthlyAmount;
   }, 0);
 
   return {

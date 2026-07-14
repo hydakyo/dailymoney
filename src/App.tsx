@@ -236,13 +236,29 @@ export default function App() {
           <TransactionsView
             transactions={data.transactions} categories={categoryMap} month={month} onMonth={setMonth}
             onAdd={() => { setSelectedTransactionId(null); setModal("transaction"); }}
-            onEdit={id => { setSelectedTransactionId(id); setModal("transaction"); }}
+            onEdit={id => {
+              const transaction = data.transactions.find(item => item.id === id);
+              if (transaction?.debtPaymentId || transaction?.installmentId) {
+                window.alert("Giao dịch này liên kết với công nợ hoặc trả góp. Hãy điều chỉnh từ luồng thanh toán tương ứng để số liệu luôn khớp.");
+                return;
+              }
+              setSelectedTransactionId(id);
+              setModal("transaction");
+            }}
             onDelete={async id => {
-              await db.transaction("rw", db.transactions, db.debtPayments, db.recurringOccurrences, async () => {
+              await db.transaction("rw", db.transactions, db.debtPayments, db.debts, db.installments, db.recurringOccurrences, async () => {
                 const tx = await db.transactions.get(id);
                 if (!tx) return;
                 if (tx.debtPaymentId) {
+                  const payment = await db.debtPayments.get(tx.debtPaymentId);
                   await db.debtPayments.delete(tx.debtPaymentId);
+                  if (payment) {
+                    const debt = await db.debts.get(payment.debtId);
+                    const remainingPayments = await db.debtPayments.where("debtId").equals(payment.debtId).toArray();
+                    if (debt && remainingPayments.reduce((sum, item) => sum + item.amount, 0) < debt.principal) {
+                      await db.debts.update(debt.id, { closedAt: undefined, updatedAt: new Date().toISOString() });
+                    }
+                  }
                 }
                 if (tx.recurringRuleId) {
                   const occs = await db.recurringOccurrences.toArray();
@@ -253,6 +269,13 @@ export default function App() {
                   }
                 }
                 await db.transactions.delete(id);
+                if (tx.installmentId) {
+                  const installment = await db.installments.get(tx.installmentId);
+                  const paidCount = await db.transactions.where("installmentId").equals(tx.installmentId).count();
+                  if (installment && paidCount < installment.totalMonths) {
+                    await db.installments.update(installment.id, { closedAt: undefined, updatedAt: new Date().toISOString() });
+                  }
+                }
               });
               await refresh();
             }}
@@ -311,10 +334,22 @@ export default function App() {
             }}
             onDeleteInstallment={async id => { await db.installments.delete(id); await refresh(); }}
             onPayInstallment={async installment => {
+              const installmentPeriod = today().slice(0, 7);
+              if (installment.closedAt || installmentPeriod < installment.startDate.slice(0, 7) || installmentPeriod >= addMonths(installment.startDate.slice(0, 7), installment.totalMonths)) {
+                window.alert("Kỳ trả góp hiện tại không còn khả dụng để thanh toán.");
+                return;
+              }
+              const existingPayment = await db.transactions.where("[installmentId+installmentPeriod]").equals([installment.id, installmentPeriod]).first();
+              if (existingPayment) {
+                window.alert("Kỳ trả góp tháng này đã được xác nhận.");
+                return;
+              }
               if (!window.confirm(`Ghi chi ${formatVnd(installment.monthlyAmount)} cho ${installment.name}?`)) return;
               const now = new Date().toISOString();
               await db.transaction("rw", db.transactions, db.installments, async () => {
-                await db.transactions.add({ id: newId(), kind: "expense", amount: installment.monthlyAmount, categoryId: installment.categoryId, walletId: primaryWalletId, date: today(), note: `Trả góp: ${installment.name}`, installmentId: installment.id, createdAt: now, updatedAt: now });
+                const paidForPeriod = await db.transactions.where("[installmentId+installmentPeriod]").equals([installment.id, installmentPeriod]).first();
+                if (paidForPeriod) throw new Error("Kỳ trả góp tháng này đã được xác nhận.");
+                await db.transactions.add({ id: newId(), kind: "expense", amount: installment.monthlyAmount, categoryId: installment.categoryId, walletId: primaryWalletId, date: today(), note: `Trả góp: ${installment.name}`, installmentId: installment.id, installmentPeriod, createdAt: now, updatedAt: now });
                 const paidCount = await db.transactions.where("installmentId").equals(installment.id).count();
                 if (paidCount >= installment.totalMonths) await db.installments.update(installment.id, { closedAt: now, updatedAt: now });
               });

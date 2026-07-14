@@ -1,6 +1,6 @@
 import { Plus, Trash2, Landmark, HandCoins, Goal, CalendarDays, Smartphone, Copy } from "lucide-react";
 import type { Category, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction } from "../../domain";
-import { formatVnd } from "../../domain";
+import { formatVnd, today } from "../../domain";
 import { debtOutstanding, goalBalance } from "../../finance";
 import type { BudgetProgressItem } from "../../finance";
 import { Card } from "../ui/Card";
@@ -158,6 +158,8 @@ export function PlansView({
             installments.map(item => {
               const paidMonths = transactions.filter(transaction => transaction.installmentId === item.id).length;
               const now = new Date();
+              const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+              const paidThisPeriod = transactions.some(transaction => transaction.installmentId === item.id && transaction.installmentPeriod === currentPeriod);
               const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
               const effectiveDueDate = Math.min(item.dueDate, daysInCurrentMonth);
               const remainingMonths = item.totalMonths - paidMonths;
@@ -166,7 +168,7 @@ export function PlansView({
                 <Card key={item.id} className="plan-card">
                   <div className="row-between">
                     <strong>{item.name}</strong>
-                    <span className={paidMonths >= item.totalMonths ? "pill" : "pill expense"}>{paidMonths >= item.totalMonths ? "Đã hoàn tất" : "Cần xác nhận"}</span>
+                    <span className={paidMonths >= item.totalMonths ? "pill" : paidThisPeriod ? "pill" : "pill expense"}>{paidMonths >= item.totalMonths ? "Đã hoàn tất" : paidThisPeriod ? "Đã trả kỳ này" : "Cần xác nhận"}</span>
                   </div>
                   <h3>{formatVnd(item.monthlyAmount)} <small className="muted">/ tháng</small></h3>
                   <div className="progress" style={{ marginTop: 12 }}>
@@ -179,7 +181,7 @@ export function PlansView({
                   </div>
                   <div className="plan-actions" style={{ marginTop: 8 }}>
                     <p>Đã xác nhận: {paidMonths}/{item.totalMonths} kỳ · Hạn ngày {item.dueDate}</p>
-                    {paidMonths < item.totalMonths && <button className="soft" onClick={() => void onPayInstallment(item)}>Xác nhận trả kỳ này</button>}
+                    {paidMonths < item.totalMonths && !paidThisPeriod && <button className="soft" onClick={() => void onPayInstallment(item)}>Xác nhận trả kỳ này</button>}
                     <button
                       className="icon-button subtle"
                       aria-label="Xóa khoản trả góp"
@@ -260,6 +262,7 @@ export function PlansView({
           {goals.length ? (
             goals.map(item => {
               const saved = goalBalance(item, goalEntries);
+              const overdue = Boolean(item.targetDate && item.targetDate < today());
               const monthsRemaining = item.targetDate ? Math.max(1, (Number(item.targetDate.slice(0, 4)) - new Date().getFullYear()) * 12 + Number(item.targetDate.slice(5, 7)) - (new Date().getMonth() + 1) + 1) : null;
               const monthlyNeeded = monthsRemaining ? Math.max(0, item.target - saved) / monthsRemaining : null;
               return (
@@ -281,7 +284,7 @@ export function PlansView({
                   <p>
                     {formatVnd(saved)} / {formatVnd(item.target)}
                   </p>
-                  {monthlyNeeded !== null && <p className="form-note">Để đạt vào {item.targetDate}, cần dành khoảng {formatVnd(monthlyNeeded)} mỗi tháng.</p>}
+                  {overdue ? <p className="form-note expense">Đã quá hạn · còn thiếu {formatVnd(Math.max(0, item.target - saved))}. Hãy gia hạn hoặc tiếp tục đóng góp.</p> : monthlyNeeded !== null && <p className="form-note">Để đạt vào {item.targetDate}, cần dành khoảng {formatVnd(monthlyNeeded)} mỗi tháng.</p>}
                   <div className="plan-actions">
                     <button className="soft" onClick={() => onContribute(item.id)}>
                       Ghi đóng góp

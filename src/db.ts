@@ -94,6 +94,19 @@ class DailyMoneyDatabase extends Dexie {
       debtPayments: "id, debtId, date, transactionId", goals: "id, closedAt", goalEntries: "id, goalId, date",
       installments: "id, closedAt, dueDate"
     });
+
+    this.version(5).stores({
+      settings: "id", wallets: "id, archived", categories: "id, kind, archived",
+      transactions: "id, date, kind, categoryId, walletId, toWalletId, recurringRuleId, debtPaymentId, installmentId, installmentPeriod, [installmentId+installmentPeriod]",
+      budgets: "id, [month+categoryId], month, categoryId", recurringRules: "id, active, nextDueDate",
+      recurringOccurrences: "id, [ruleId+dueDate], status, dueDate", debts: "id, kind, dueDate, closedAt",
+      debtPayments: "id, debtId, date, transactionId", goals: "id, closedAt", goalEntries: "id, goalId, date",
+      installments: "id, closedAt, dueDate"
+    }).upgrade(async trans => {
+      await trans.table("transactions").toCollection().modify((transaction: Transaction) => {
+        if (transaction.installmentId && !transaction.installmentPeriod) transaction.installmentPeriod = transaction.date.slice(0, 7);
+      });
+    });
   }
 }
 
@@ -151,6 +164,9 @@ export async function restoreBackup(payload: BackupPayloadV1 | BackupPayloadV2 |
     await db.settings.put(payload.settings);
     await db.categories.bulkAdd(payload.categories);
     await db.transactions.bulkAdd(payload.transactions);
+    await db.transactions.toCollection().modify((transaction: Transaction) => {
+      if (transaction.installmentId && !transaction.installmentPeriod) transaction.installmentPeriod = transaction.date.slice(0, 7);
+    });
     await db.budgets.bulkAdd(payload.budgets ?? []);
     await db.recurringRules.bulkAdd(payload.recurringRules ?? []);
     await db.recurringOccurrences.bulkAdd(payload.recurringOccurrences ?? []);

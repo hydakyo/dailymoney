@@ -54,6 +54,7 @@ export interface Transaction {
   recurringRuleId?: string;
   debtPaymentId?: string;
   installmentId?: string;
+  installmentPeriod?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -266,6 +267,7 @@ export const TransactionSchema = z.object({
   recurringRuleId: z.string().max(100).optional(),
   debtPaymentId: z.string().max(100).optional(),
   installmentId: z.string().max(100).optional(),
+  installmentPeriod: MonthSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
