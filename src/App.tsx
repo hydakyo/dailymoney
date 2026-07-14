@@ -23,6 +23,8 @@ import { generateAdvice } from "./advisor";
 import { BackupForm, BudgetForm, CategoryManager, DebtForm, DebtPaymentForm, GoalEntryForm, GoalForm, InstallmentForm, OpeningBalanceForm, PinForm, RecurringForm, ReminderForm, RestoreForm } from "./components/modals/Forms";
 import { SmartPlanModal } from "./components/modals/SmartPlanModal";
 import { primaryWallet, requirePrimaryWalletId } from "./wallet";
+import { isLegacyTransfer, normalizeEditableTransaction } from "./transaction";
+import { DataRecoveryView } from "./components/views/DataRecoveryView";
 
 type Tab = "home" | "transactions" | "plans" | "reports" | "settings";
 type PlanSection = "budgets" | "debts" | "goals" | "installments" | "recurring";
@@ -94,20 +96,28 @@ export default function App() {
   if (locked) return <Unlock settings={data.settings} onUnlocked={() => setLocked(false)} />;
 
   const currentPrimaryWallet = primaryWallet(data.wallets);
+  if (!currentPrimaryWallet) {
+    return <DataRecoveryView
+      onCreatePrimaryWallet={async () => {
+        const now = new Date().toISOString();
+        await db.wallets.add({ id: newId(), name: "Ví chính", icon: "Wallet", color: "#6d5dfc", initialBalance: data.settings.openingBalance, archived: false, createdAt: now, updatedAt: now });
+        await refresh();
+      }}
+      onReset={async () => {
+        if (!window.confirm("Xóa toàn bộ dữ liệu Daily Money trên thiết bị này?")) return;
+        await db.delete();
+        window.location.reload();
+      }}
+    />;
+  }
   const primaryWalletId = requirePrimaryWalletId(data.wallets);
 
   const addTransaction = async (input: TransactionInput) => {
     const now = new Date().toISOString();
-    const kind: EditableTransactionKind = input.kind === "income" ? "income" : "expense";
+    const transactionValues = normalizeEditableTransaction(input, primaryWalletId);
     if (input.id) {
       await db.transactions.update(input.id, {
-        kind,
-        amount: input.amount,
-        categoryId: input.categoryId,
-        walletId: primaryWalletId,
-        toWalletId: undefined,
-        date: input.date,
-        note: input.note,
+        ...transactionValues,
         updatedAt: now
       });
       setSelectedTransactionId(null);
@@ -119,12 +129,7 @@ export default function App() {
     await db.transaction("rw", db.transactions, db.recurringRules, async () => {
       const transaction: Transaction = {
         id: newId(),
-        kind,
-        amount: input.amount,
-        categoryId: input.categoryId,
-        walletId: primaryWalletId,
-        date: input.date,
-        note: input.note,
+        ...transactionValues,
         createdAt: now,
         updatedAt: now
       };
@@ -132,11 +137,11 @@ export default function App() {
       if (input.recurring) {
         const draft: RecurringRule = {
           id: newId(),
-          kind,
-          amount: input.amount,
-          categoryId: input.categoryId,
+          kind: transactionValues.kind,
+          amount: transactionValues.amount,
+          categoryId: transactionValues.categoryId,
           walletId: primaryWalletId,
-          note: input.note,
+          note: transactionValues.note,
           frequency: input.recurring.frequency,
           interval: input.recurring.interval,
           dayOfMonth: input.recurring.dayOfMonth,
@@ -160,7 +165,7 @@ export default function App() {
     const rule = data.rules.find(item => item.id === occurrence.ruleId);
     if (!rule) return;
     const now = new Date().toISOString();
-    if (rule.kind === "transfer") {
+    if (isLegacyTransfer(rule.kind)) {
       await db.transaction("rw", db.recurringRules, db.recurringOccurrences, async () => {
         await db.recurringRules.update(rule.id, { active: false, updatedAt: now });
         await db.recurringOccurrences.update(id, { status: "skipped", updatedAt: now });
@@ -380,10 +385,10 @@ export default function App() {
       )}
       {modal === "goal" && <GoalForm onClose={() => setModal(null)} onSubmit={async value => { await db.goals.add({ id: newId(), ...value, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "goal-entry" && selectedGoalId && <GoalEntryForm goal={data.goals.find(item => item.id === selectedGoalId)!} onClose={() => setModal(null)} onSubmit={async value => { await db.goalEntries.add({ id: newId(), goalId: selectedGoalId, ...value, createdAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
-      {modal === "installment" && <InstallmentForm categories={data.categories} primaryWalletId={primaryWalletId} onClose={() => setModal(null)} onSubmit={async (value: any) => { await db.installments.add({ id: newId(), ...value, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
+      {modal === "installment" && <InstallmentForm categories={data.categories} primaryWalletId={primaryWalletId} onClose={() => setModal(null)} onSubmit={async value => { await db.installments.add({ id: newId(), ...value, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "recurring" && <RecurringForm categories={data.categories} primaryWalletId={primaryWalletId} onClose={() => setModal(null)} onSubmit={async value => { await db.recurringRules.add({ id: newId(), ...value, active: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "backup" && <BackupForm onClose={() => setModal(null)} onDone={async password => { const encrypted = await encryptBackup(await exportBackup(), password); downloadFile(`daily-money-backup-${today()}.dailymoney`, JSON.stringify(encrypted), "application/json"); await db.settings.update("settings", { lastBackupAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
-      {modal === "restore" && <RestoreForm inputRef={fileRef} onClose={() => setModal(null)} onRestore={async (file, password) => { if (file.size > 20 * 1024 * 1024) return alert("File backup quá lớn (vượt quá 20MB)."); const encrypted = JSON.parse(await file.text()); const backup = await decryptBackup(encrypted, password); if (!window.confirm(`Khôi phục ${backup.transactions?.length || 0} giao dịch? Dữ liệu hiện tại trên thiết bị sẽ bị thay thế.`)) return; const preRestorePayload = await exportBackup(); const preRestoreEncrypted = await encryptBackup(preRestorePayload, password); alert("Hệ thống chuẩn bị tải xuống một file sao lưu an toàn của dữ liệu HIỆN TẠI.\nLưu ý: File này sẽ dùng chung mật khẩu với file bạn đang khôi phục."); downloadFile(`daily-money-pre-restore-${today()}.dailymoney`, JSON.stringify(preRestoreEncrypted), "application/json"); if (!window.confirm("Ứng dụng đã yêu cầu trình duyệt tải bản lưu phòng hờ. Hãy kiểm tra file đã xuất hiện trong thư mục Tải xuống trước khi bấm OK tiếp tục.")) return; await restoreBackup(backup); setModal(null); await refresh(); }} />}
+      {modal === "restore" && <RestoreForm inputRef={fileRef} onClose={() => setModal(null)} onRestore={async (file, password) => { if (file.size > 20 * 1024 * 1024) return alert("File backup quá lớn (vượt quá 20MB)."); const encrypted = JSON.parse(await file.text()); const backup = await decryptBackup(encrypted, password); const backupPrimaryWallet = primaryWallet(backup.wallets ?? []); const legacyWalletNote = backup.wallets && backup.wallets.length > 1 ? `\n\nBackup chứa ${backup.wallets.length} ví. Daily Money sẽ dùng ví chính: ${backupPrimaryWallet?.name ?? "ví active đầu tiên"}. Dữ liệu các ví cũ vẫn được giữ để không mất lịch sử.` : ""; if (!window.confirm(`Khôi phục ${backup.transactions?.length || 0} giao dịch? Dữ liệu hiện tại trên thiết bị sẽ bị thay thế.${legacyWalletNote}`)) return; const preRestorePayload = await exportBackup(); const preRestoreEncrypted = await encryptBackup(preRestorePayload, password); alert("Hệ thống chuẩn bị tải xuống một file sao lưu an toàn của dữ liệu HIỆN TẠI.\nLưu ý: File này sẽ dùng chung mật khẩu với file bạn đang khôi phục."); downloadFile(`daily-money-pre-restore-${today()}.dailymoney`, JSON.stringify(preRestoreEncrypted), "application/json"); if (!window.confirm("Ứng dụng đã yêu cầu trình duyệt tải bản lưu phòng hờ. Hãy kiểm tra file đã xuất hiện trong thư mục Tải xuống trước khi bấm OK tiếp tục.")) return; await restoreBackup(backup); setModal(null); await refresh(); }} />}
       {modal === "smart-plan" && <SmartPlanModal data={data} month={month} onClose={() => setModal(null)} onApplied={async () => { setModal(null); await refresh(); }} />}
       {modal === "pin" && <PinForm settings={data.settings} onClose={() => setModal(null)} onSave={async pin => { const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))); const pinHash = await hashPin(pin, salt); await db.settings.update("settings", { lockEnabled: true, pinHash, pinSalt: salt, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} onDisable={async () => { await db.settings.update("settings", { lockEnabled: false, pinHash: undefined, pinSalt: undefined, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "categories" && <CategoryManager categories={data.categories} onClose={() => setModal(null)} onChange={refresh} />}
