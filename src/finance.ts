@@ -1,8 +1,18 @@
-import type { Budget, Category, Debt, DebtPayment, GoalEntry, RecurringOccurrence, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
+import type { Budget, Category, Debt, DebtPayment, GoalEntry, Installment, RecurringOccurrence, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 
 export type BudgetProgressItem = Budget & {
   spent: number;
   category?: Category;
+};
+
+export type MonthForecast = {
+  projectedBalance: number;
+  expectedIncome: number;
+  expectedRecurringExpense: number;
+  expectedInstallments: number;
+  projectedFlexibleExpense: number;
+  remainingBudget: number;
+  daysRemaining: number;
 };
 
 export function walletBalance(wallet: Wallet, transactions: Transaction[]) {
@@ -49,6 +59,65 @@ export function budgetProgress(budgets: Budget[], transactions: Transaction[], c
     spent: categorySpending(transactions, month, budget.categoryId),
     category: categories.find(category => category.id === budget.categoryId)
   }));
+}
+
+export function monthForecast({
+  balance,
+  month,
+  transactions,
+  rules,
+  occurrences,
+  installments,
+  budgets,
+  asOf = new Date()
+}: {
+  balance: number;
+  month: string;
+  transactions: Transaction[];
+  rules: RecurringRule[];
+  occurrences: RecurringOccurrence[];
+  installments: Installment[];
+  budgets: BudgetProgressItem[];
+  asOf?: Date;
+}): MonthForecast | null {
+  const currentMonth = `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, "0")}`;
+  if (month !== currentMonth) return null;
+
+  const daysInMonth = new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate();
+  const daysRemaining = Math.max(0, daysInMonth - asOf.getDate());
+  const elapsedDays = Math.max(1, asOf.getDate());
+  const currentExpense = monthTotals(transactions, month).expense;
+  const averageDailyExpense = currentExpense / elapsedDays;
+  const remainingBudget = budgets.reduce((sum, budget) => sum + Math.max(0, budget.limit - budget.spent), 0);
+  const uncappedFlexibleExpense = averageDailyExpense * daysRemaining;
+  const projectedFlexibleExpense = budgets.length ? Math.min(uncappedFlexibleExpense, remainingBudget) : uncappedFlexibleExpense;
+
+  const ruleById = new Map(rules.map(rule => [rule.id, rule]));
+  let expectedIncome = 0;
+  let expectedRecurringExpense = 0;
+  for (const occurrence of occurrences) {
+    if (occurrence.status !== "pending" || !occurrence.dueDate.startsWith(month)) continue;
+    const rule = ruleById.get(occurrence.ruleId);
+    if (!rule || !rule.active || rule.kind === "transfer") continue;
+    if (rule.kind === "income") expectedIncome += rule.amount;
+    else expectedRecurringExpense += rule.amount;
+  }
+
+  const expectedInstallments = installments.reduce((sum, installment) => {
+    if (installment.closedAt || installment.startDate > `${month}-${String(daysInMonth).padStart(2, "0")}`) return sum;
+    const dueDate = Math.min(installment.dueDate, daysInMonth);
+    return dueDate > asOf.getDate() ? sum + installment.monthlyAmount : sum;
+  }, 0);
+
+  return {
+    projectedBalance: balance + expectedIncome - expectedRecurringExpense - expectedInstallments - projectedFlexibleExpense,
+    expectedIncome,
+    expectedRecurringExpense,
+    expectedInstallments,
+    projectedFlexibleExpense,
+    remainingBudget,
+    daysRemaining
+  };
 }
 
 export function debtOutstanding(debt: Debt, payments: DebtPayment[]) {

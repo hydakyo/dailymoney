@@ -4,7 +4,8 @@ import { decryptBackup, downloadFile, encryptBackup, transactionsCsv, type Encry
 import { db, exportBackup, restoreBackup } from "./db";
 import { currentMonth, newId, today } from "./domain";
 import type { EditableTransactionKind, RecurringRule, Transaction } from "./domain";
-import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, monthTotals } from "./finance";
+import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, monthForecast, monthTotals } from "./finance";
+import { addMonths } from "./utils";
 import { clearDailyReminder, isNativeApp, setDailyReminder } from "./notifications";
 import { clearWebPushReminder, setWebPushReminder, supportsWebPush } from "./web-push";
 import { VoiceTransactionForm } from "./VoiceTransactionForm";
@@ -83,6 +84,10 @@ export default function App() {
   const budgetItems = useMemo(
     () => budgetProgress(data.budgets, data.transactions, data.categories, month),
     [data.budgets, data.transactions, data.categories, month]
+  );
+  const forecast = useMemo(
+    () => monthForecast({ balance, month, transactions: data.transactions, rules: data.rules, occurrences: data.occurrences, installments: data.installments, budgets: budgetItems }),
+    [balance, budgetItems, data.installments, data.occurrences, data.rules, data.transactions, month]
   );
 
   if (!ready) {
@@ -224,7 +229,7 @@ export default function App() {
         {tab === "home" && (
           <HomeView
             balance={balance} totals={totals} month={month} pending={pending} rules={data.rules} categories={categoryMap}
-            budgets={budgetItems} advices={generateAdvice(data, month)} onAdd={() => setModal("transaction")} onPending={confirmOccurrence} onMonth={setMonth}
+            budgets={budgetItems} forecast={forecast} advices={generateAdvice(data, month)} onAdd={() => setModal("transaction")} onPending={confirmOccurrence} onMonth={setMonth}
           />
         )}
         {tab === "transactions" && (
@@ -273,6 +278,23 @@ export default function App() {
               if (section === "recurring") setModal("recurring");
             }}
             onSmartPlan={() => setModal("smart-plan")}
+            onCopyPreviousBudgets={async () => {
+              const previousMonth = addMonths(month, -1);
+              const previousBudgets = data.budgets.filter(item => item.month === previousMonth);
+              if (!previousBudgets.length) {
+                window.alert("Tháng trước chưa có ngân sách để sao chép.");
+                return;
+              }
+              const currentCategoryIds = new Set(data.budgets.filter(item => item.month === month).map(item => item.categoryId));
+              const missingBudgets = previousBudgets.filter(item => !currentCategoryIds.has(item.categoryId));
+              if (!missingBudgets.length) {
+                window.alert("Các danh mục ngân sách của tháng này đã đầy đủ.");
+                return;
+              }
+              const now = new Date().toISOString();
+              await db.budgets.bulkAdd(missingBudgets.map(item => ({ ...item, id: newId(), month, createdAt: now, updatedAt: now })));
+              await refresh();
+            }}
             onPay={id => { setSelectedDebtId(id); setModal("payment"); }}
             onContribute={id => { setSelectedGoalId(id); setModal("goal-entry"); }}
             onToggleRule={async rule => { await db.recurringRules.update(rule.id, { active: !rule.active, updatedAt: new Date().toISOString() }); await refresh(); }}

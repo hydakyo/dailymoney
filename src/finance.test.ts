@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDueDate, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, monthTotals } from "./finance";
+import { advanceDueDate, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, monthForecast, monthTotals } from "./finance";
 import type { Budget, Category, Debt, DebtPayment, GoalEntry, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 
 const transaction = (kind: Transaction["kind"], amount: number, date = "2026-07-13", walletId = "w1"): Transaction => ({
@@ -66,5 +66,26 @@ describe("finance calculations", () => {
     expect(budgetProgress([budget], [{ ...transaction("expense", 450_000, "2026-07-02"), categoryId: "food" }], [category], "2026-07")[0]).toMatchObject({ spent: 450_000, category });
     expect(debtOutstanding(debt, [payment])).toBe(2_250_000);
     expect(goalBalance(goal, entries)).toBe(1_300_000);
+  });
+
+  it("forecasts the current month from pending rules, installments and remaining budget", () => {
+    const category: Category = { id: "food", kind: "expense", name: "Ăn uống", icon: "Utensils", color: "#f00", archived: false, builtIn: true, createdAt: "" };
+    const budget: Budget = { id: "budget", categoryId: "food", month: "2026-07", limit: 2_000_000, createdAt: "", updatedAt: "" };
+    const forecast = monthForecast({
+      balance: 10_000_000,
+      month: "2026-07",
+      transactions: [{ ...transaction("expense", 1_000_000, "2026-07-01"), categoryId: "food" }],
+      rules: [rule({ id: "salary", kind: "income", amount: 4_000_000, nextDueDate: "2026-07-25" }), rule({ id: "rent", amount: 2_000_000, nextDueDate: "2026-07-20" })],
+      occurrences: [
+        { id: "salary:2026-07-25", ruleId: "salary", dueDate: "2026-07-25", status: "pending", createdAt: "", updatedAt: "" },
+        { id: "rent:2026-07-20", ruleId: "rent", dueDate: "2026-07-20", status: "pending", createdAt: "", updatedAt: "" }
+      ],
+      installments: [{ id: "phone", name: "Phone", totalAmount: 3_000_000, monthlyAmount: 500_000, totalMonths: 6, startDate: "2026-07-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" }],
+      budgets: budgetProgress([budget], [{ ...transaction("expense", 1_000_000, "2026-07-01"), categoryId: "food" }], [category], "2026-07"),
+      asOf: new Date(2026, 6, 14)
+    });
+    expect(forecast).toMatchObject({ expectedIncome: 4_000_000, expectedRecurringExpense: 2_000_000, expectedInstallments: 500_000, remainingBudget: 1_000_000, projectedFlexibleExpense: 1_000_000 });
+    expect(forecast?.projectedBalance).toBe(10_500_000);
+    expect(monthForecast({ balance: 0, month: "2026-06", transactions: [], rules: [], occurrences: [], installments: [], budgets: [], asOf: new Date(2026, 6, 14) })).toBeNull();
   });
 });

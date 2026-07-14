@@ -1,4 +1,4 @@
-import { Plus, Trash2, Landmark, HandCoins, Goal, CalendarDays, Smartphone } from "lucide-react";
+import { Plus, Trash2, Landmark, HandCoins, Goal, CalendarDays, Smartphone, Copy } from "lucide-react";
 import type { Category, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal } from "../../domain";
 import { formatVnd } from "../../domain";
 import { debtOutstanding, goalBalance } from "../../finance";
@@ -23,6 +23,7 @@ export function PlansView({
   onPay,
   onContribute,
   onSmartPlan,
+  onCopyPreviousBudgets,
   onToggleRule,
   onDeleteBudget,
   onDeleteDebt,
@@ -42,6 +43,7 @@ export function PlansView({
   installments: Installment[];
   onAdd: (section: PlanSection) => void;
   onSmartPlan: () => void;
+  onCopyPreviousBudgets: () => Promise<void>;
   onPay: (debtId: string) => void;
   onContribute: (id: string) => void;
   onToggleRule: (rule: RecurringRule) => Promise<void>;
@@ -99,6 +101,9 @@ export function PlansView({
               </div>
               <Plus size={24} />
             </div>
+          </button>
+          <button className="soft full" onClick={() => void onCopyPreviousBudgets()}>
+            <Copy size={17} /> Sao chép ngân sách từ tháng trước
           </button>
 
           {budgets.length ? (

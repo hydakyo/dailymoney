@@ -1,11 +1,11 @@
-import { ChevronLeft, ChevronRight, TrendingDown, TrendingUp, BellRing, Landmark, CirclePlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, TrendingDown, TrendingUp, BellRing, Landmark, CirclePlus, CalendarClock } from "lucide-react";
 import type { Category, RecurringRule } from "../../domain";
 import { formatVnd } from "../../domain";
 import { addMonths, monthLabel } from "../../utils";
 import { Card } from "../ui/Card";
 import type { AppData } from "../../store";
 import type { Advice } from "../../advisor";
-import type { BudgetProgressItem } from "../../finance";
+import type { BudgetProgressItem, MonthForecast } from "../../finance";
 import { AlertCircle, AlertTriangle, CheckCircle, Info } from "lucide-react";
 
 export function HomeView({
@@ -16,6 +16,7 @@ export function HomeView({
   rules,
   categories,
   budgets,
+  forecast,
   advices,
   onAdd,
   onPending,
@@ -28,6 +29,7 @@ export function HomeView({
   rules: RecurringRule[];
   categories: Map<string, Category>;
   budgets: BudgetProgressItem[];
+  forecast: MonthForecast | null;
   advices: Advice[];
   onAdd: () => void;
   onPending: (id: string, skip?: boolean) => void;
@@ -68,6 +70,19 @@ export function HomeView({
           </div>
         </div>
       </Card>
+
+      {forecast && (
+        <Card className="forecast-card">
+          <CalendarClock size={21} />
+          <div>
+            <p>Dự kiến cuối tháng còn</p>
+            <strong className={forecast.projectedBalance < 0 ? "expense" : ""}>{formatVnd(forecast.projectedBalance)}</strong>
+            <small>
+              Còn {forecast.daysRemaining} ngày · dựa trên chi tiêu hiện tại, lịch lặp, trả góp và ngân sách còn lại.
+            </small>
+          </div>
+        </Card>
+      )}
       
       <section className="section-head">
         <h2>Cố vấn Tài chính</h2>
