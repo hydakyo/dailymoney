@@ -1,0 +1,9 @@
+{
+  "name": "daily-money-reminders",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "dm.kelvin.io.vn/api/reminders/*", "zone_name": "kelvin.io.vn" }],
+  "d1_databases": [{ "binding": "REMINDERS", "database_name": "daily-money-reminders", "database_id": "13c9d21e-59c6-4504-97a1-8e32cebebc2b" }],
+  "triggers": { "crons": ["* * * * *"] }
+}

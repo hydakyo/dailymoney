@@ -1,0 +1,365 @@
+import React, { useState } from "react";
+import { Upload } from "lucide-react";
+import type { AppSettings, Budget, Category, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction, Wallet } from "../../domain";
+import { formatVnd, newId, today } from "../../domain";
+import { isNativeApp } from "../../notifications";
+import { supportsWebPush } from "../../web-push";
+import { db } from "../../db";
+import { Modal } from "../ui/Modal";
+import { AmountInput } from "../ui/AmountInput";
+
+export function TransactionForm({
+  transaction,
+  categories,
+  onSubmit,
+  onClose
+}: {
+  transaction?: Transaction;
+  categories: Category[];
+  onSubmit: (value: any) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [kind, setKind] = useState<Transaction["kind"]>(transaction?.kind ?? "expense");
+  const [amount, setAmount] = useState(transaction ? String(transaction.amount) : "");
+  const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? "");
+  const [date, setDate] = useState(transaction?.date ?? today());
+  const [note, setNote] = useState(transaction?.note ?? "");
+  const [recurring, setRecurring] = useState(false);
+  const [frequency, setFrequency] = useState<RecurringRule["frequency"]>("monthly");
+  
+  const relevant = categories.filter(category => category.kind === kind && !category.archived);
+  
+  React.useEffect(() => {
+    if (!transaction) setCategoryId(relevant[0]?.id ?? "");
+  }, [kind, transaction]);
+
+  return (
+    <Modal title={transaction ? "Sửa giao dịch" : "Ghi giao dịch"} onClose={onClose}>
+      <div className="kind-switch">
+        <button className={kind === "expense" ? "selected expense-bg" : ""} onClick={() => setKind("expense")}>Chi tiền</button>
+        <button className={kind === "income" ? "selected income-bg" : ""} onClick={() => setKind("income")}>Thu tiền</button>
+      </div>
+      <AmountInput value={amount} onChange={setAmount} />
+      <label className="field">
+        <span>Danh mục</span>
+        <select value={categoryId} onChange={event => setCategoryId(event.target.value)}>
+          {relevant.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+        </select>
+      </label>
+      <label className="field">
+        <span>Ngày</span>
+        <input type="date" value={date} onChange={event => setDate(event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Ghi chú <em>(không bắt buộc)</em></span>
+        <input value={note} onChange={event => setNote(event.target.value)} placeholder="Ví dụ: cà phê sáng" />
+      </label>
+      {!transaction && (
+        <>
+          <label className="checkbox">
+            <input type="checkbox" checked={recurring} onChange={event => setRecurring(event.target.checked)} /> Lặp lại giao dịch này
+          </label>
+          {recurring && (
+            <label className="field">
+              <span>Tần suất</span>
+              <select value={frequency} onChange={event => setFrequency(event.target.value as RecurringRule["frequency"])}>
+                <option value="daily">Mỗi ngày</option>
+                <option value="weekly">Mỗi tuần</option>
+                <option value="monthly">Mỗi tháng</option>
+                <option value="yearly">Mỗi năm</option>
+              </select>
+            </label>
+          )}
+        </>
+      )}
+      <button className="primary full" disabled={!amount || !categoryId} onClick={() => void onSubmit({ id: transaction?.id, kind, amount: Number(amount), categoryId, date, note: note || undefined, recurring: recurring ? { frequency, interval: 1, dayOfMonth: Number(date.slice(-2)) } : undefined })}>
+        {transaction ? "Lưu thay đổi" : "Lưu giao dịch"}
+      </button>
+    </Modal>
+  );
+}
+
+export function BudgetForm({ categories, month, onSubmit, onClose }: { categories: Category[]; month: string; onSubmit: (value: Pick<Budget, "categoryId" | "month" | "limit">) => Promise<void>; onClose: () => void }) {
+  const expenses = categories.filter(category => category.kind === "expense" && !category.archived);
+  const [categoryId, setCategoryId] = useState(expenses[0]?.id ?? "");
+  const [amount, setAmount] = useState("");
+  return (
+    <Modal title="Đặt ngân sách" onClose={onClose}>
+      <label className="field">
+        <span>Tháng</span>
+        <input type="month" defaultValue={month} id="budget-month" />
+      </label>
+      <label className="field">
+        <span>Danh mục</span>
+        <select value={categoryId} onChange={event => setCategoryId(event.target.value)}>
+          {expenses.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+        </select>
+      </label>
+      <AmountInput label="Giới hạn chi" value={amount} onChange={setAmount} />
+      <button className="primary full" disabled={!amount} onClick={() => {
+        const monthValue = (document.getElementById("budget-month") as HTMLInputElement).value;
+        void onSubmit({ categoryId, month: monthValue, limit: Number(amount) });
+      }}>Lưu ngân sách</button>
+    </Modal>
+  );
+}
+
+export function DebtForm({ onSubmit, onClose }: { onSubmit: (value: Omit<Debt, "id" | "closedAt" | "createdAt" | "updatedAt">) => Promise<void>; onClose: () => void }) {
+  const [kind, setKind] = useState<Debt["kind"]>("payable");
+  const [person, setPerson] = useState("");
+  const [amount, setAmount] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [note, setNote] = useState("");
+  return (
+    <Modal title="Khoản công nợ" onClose={onClose}>
+      <div className="kind-switch">
+        <button className={kind === "payable" ? "selected expense-bg" : ""} onClick={() => setKind("payable")}>Tôi phải trả</button>
+        <button className={kind === "receivable" ? "selected income-bg" : ""} onClick={() => setKind("receivable")}>Tôi cần thu</button>
+      </div>
+      <label className="field"><span>Người liên quan</span><input value={person} onChange={event => setPerson(event.target.value)} placeholder="Tên người" /></label>
+      <AmountInput label="Số tiền gốc" value={amount} onChange={setAmount} />
+      <label className="field"><span>Hạn thanh toán <em>(không bắt buộc)</em></span><input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} /></label>
+      <label className="field"><span>Ghi chú</span><input value={note} onChange={event => setNote(event.target.value)} /></label>
+      <p className="form-note">Tạo khoản nợ không làm thay đổi số dư. Khi thu/trả mới tạo giao dịch.</p>
+      <button className="primary full" disabled={!person || !amount} onClick={() => void onSubmit({ kind, person, principal: Number(amount), openedDate: today(), dueDate: dueDate || undefined, note: note || undefined })}>Lưu khoản nợ</button>
+    </Modal>
+  );
+}
+
+export function DebtPaymentForm({ debt, outstanding, onSubmit, onClose }: { debt: Debt; outstanding: number; categories: Category[]; onSubmit: (value: { id: string; amount: number; date: string; note?: string }) => Promise<void>; onClose: () => void }) {
+  const [amount, setAmount] = useState(String(outstanding));
+  const [date, setDate] = useState(today());
+  const [note, setNote] = useState("");
+  return (
+    <Modal title={debt.kind === "payable" ? "Ghi trả nợ" : "Ghi thu nợ"} onClose={onClose}>
+      <p className="form-note">Còn lại {formatVnd(outstanding)} · thao tác này sẽ ghi vào số dư.</p>
+      <AmountInput value={amount} onChange={setAmount} />
+      <label className="field"><span>Ngày</span><input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
+      <label className="field"><span>Ghi chú</span><input value={note} onChange={event => setNote(event.target.value)} /></label>
+      <button className="primary full" disabled={!amount || Number(amount) > outstanding} onClick={() => void onSubmit({ id: newId(), amount: Number(amount), date, note: note || undefined })}>Xác nhận</button>
+    </Modal>
+  );
+}
+
+export function GoalForm({ onSubmit, onClose }: { onSubmit: (value: Omit<SavingsGoal, "id" | "closedAt" | "createdAt" | "updatedAt">) => Promise<void>; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [targetDate, setTargetDate] = useState("");
+  const [color, setColor] = useState("#7c5cff");
+  return (
+    <Modal title="Mục tiêu tiết kiệm" onClose={onClose}>
+      <label className="field"><span>Tên mục tiêu</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Ví dụ: Du lịch Đà Lạt" /></label>
+      <AmountInput label="Mục tiêu tiền" value={amount} onChange={setAmount} />
+      <label className="field"><span>Ngày mong muốn <em>(không bắt buộc)</em></span><input type="date" value={targetDate} onChange={event => setTargetDate(event.target.value)} /></label>
+      <label className="field"><span>Màu mục tiêu</span><input type="color" value={color} onChange={event => setColor(event.target.value)} /></label>
+      <button className="primary full" disabled={!name || !amount} onClick={() => void onSubmit({ name, target: Number(amount), targetDate: targetDate || undefined, color, icon: "Goal" })}>Tạo mục tiêu</button>
+    </Modal>
+  );
+}
+
+export function GoalEntryForm({ goal, onSubmit, onClose }: { goal: SavingsGoal; onSubmit: (value: Omit<GoalEntry, "id" | "goalId" | "createdAt">) => Promise<void>; onClose: () => void }) {
+  const [amount, setAmount] = useState("");
+  const [direction, setDirection] = useState<GoalEntry["direction"]>("contribution");
+  const [date, setDate] = useState(today());
+  return (
+    <Modal title={goal.name} onClose={onClose}>
+      <div className="kind-switch">
+        <button className={direction === "contribution" ? "selected income-bg" : ""} onClick={() => setDirection("contribution")}>Đóng góp</button>
+        <button className={direction === "withdrawal" ? "selected expense-bg" : ""} onClick={() => setDirection("withdrawal")}>Rút ra</button>
+      </div>
+      <AmountInput value={amount} onChange={setAmount} />
+      <label className="field"><span>Ngày</span><input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
+      <p className="form-note">Khoản này chỉ theo dõi tiến độ mục tiêu, không làm thay đổi số dư.</p>
+      <button className="primary full" disabled={!amount} onClick={() => void onSubmit({ amount: Number(amount), direction, date })}>Lưu</button>
+    </Modal>
+  );
+}
+
+export function InstallmentForm({ categories, wallets, onSubmit, onClose }: { categories: Category[]; wallets: Wallet[]; onSubmit: (value: Omit<Installment, "id" | "createdAt" | "updatedAt">) => Promise<void>; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [totalAmount, setTotalAmount] = useState("");
+  const [totalMonths, setTotalMonths] = useState("");
+  const [startDate, setStartDate] = useState(today());
+  const [dueDate, setDueDate] = useState("15");
+  const [categoryId, setCategoryId] = useState("");
+  const [walletId, setWalletId] = useState(wallets[0]?.id ?? "");
+
+  const expenseCategories = categories.filter(c => c.kind === "expense" && !c.archived);
+  
+  React.useEffect(() => { if (!categoryId && expenseCategories.length) setCategoryId(expenseCategories[0].id); }, [categoryId, expenseCategories]);
+
+  return (
+    <Modal title="Thêm món trả góp" onClose={onClose}>
+      <label className="field"><span>Tên món đồ (VD: iPhone 16 Pro)</span><input value={name} onChange={event => setName(event.target.value)} /></label>
+      <AmountInput label="Tổng nợ trả góp" value={totalAmount} onChange={setTotalAmount} />
+      
+      <div className="stat-grid" style={{ gap: 8, marginBottom: 12 }}>
+        <label className="field" style={{ marginBottom: 0 }}>
+          <span>Số tháng trả</span>
+          <input type="number" value={totalMonths} onChange={e => setTotalMonths(e.target.value)} min="1" max="120" />
+        </label>
+        <label className="field" style={{ marginBottom: 0 }}>
+          <span>Ngày hạn chót (1-31)</span>
+          <input type="number" value={dueDate} onChange={e => setDueDate(e.target.value)} min="1" max="31" />
+        </label>
+      </div>
+
+      <label className="field"><span>Ngày bắt đầu góp</span><input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} /></label>
+      <label className="field"><span>Danh mục chi</span><select value={categoryId} onChange={event => setCategoryId(event.target.value)}>{expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+      <label className="field"><span>Ví trừ tiền</span><select value={walletId} onChange={event => setWalletId(event.target.value)}>{wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
+      
+      <p className="form-note">Mỗi tháng bạn sẽ trả: {totalAmount && totalMonths ? formatVnd(Number(totalAmount) / Number(totalMonths)) : "0 đ"}</p>
+      
+      <button className="primary full" disabled={!name || !totalAmount || !totalMonths || !categoryId} onClick={() => void onSubmit({ 
+        name, 
+        totalAmount: Number(totalAmount), 
+        monthlyAmount: Math.round(Number(totalAmount) / Number(totalMonths)), 
+        totalMonths: Number(totalMonths), 
+        startDate, 
+        dueDate: Number(dueDate), 
+        categoryId, 
+        walletId 
+      })}>
+        Tạo khoản trả góp
+      </button>
+    </Modal>
+  );
+}
+
+export function RecurringForm({ categories, onSubmit, onClose }: { categories: Category[]; onSubmit: (value: Omit<RecurringRule, "id" | "active" | "createdAt" | "updatedAt">) => Promise<void>; onClose: () => void }) {
+  const [kind, setKind] = useState<Transaction["kind"]>("expense");
+  const [amount, setAmount] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [frequency, setFrequency] = useState<RecurringRule["frequency"]>("monthly");
+  const [date, setDate] = useState(today());
+  const relevant = categories.filter(category => category.kind === kind && !category.archived);
+  React.useEffect(() => { if (!categoryId) setCategoryId(relevant[0]?.id ?? ""); }, [kind]);
+  return (
+    <Modal title="Tạo giao dịch lặp" onClose={onClose}>
+      <div className="kind-switch">
+        <button className={kind === "expense" ? "selected expense-bg" : ""} onClick={() => setKind("expense")}>Chi tiền</button>
+        <button className={kind === "income" ? "selected income-bg" : ""} onClick={() => setKind("income")}>Thu tiền</button>
+      </div>
+      <AmountInput value={amount} onChange={setAmount} />
+      <label className="field"><span>Danh mục</span><select value={categoryId} onChange={event => setCategoryId(event.target.value)}>{relevant.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+      <label className="field">
+        <span>Tần suất</span>
+        <select value={frequency} onChange={event => setFrequency(event.target.value as RecurringRule["frequency"])}>
+          <option value="daily">Mỗi ngày</option>
+          <option value="weekly">Mỗi tuần</option>
+          <option value="monthly">Mỗi tháng</option>
+          <option value="yearly">Mỗi năm</option>
+        </select>
+      </label>
+      <label className="field"><span>Ngày bắt đầu</span><input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
+      <button className="primary full" disabled={!amount || !categoryId} onClick={() => void onSubmit({ kind, amount: Number(amount), categoryId, frequency, interval: 1, dayOfMonth: Number(date.slice(-2)), startDate: date, nextDueDate: date })}>Tạo lịch lặp</button>
+    </Modal>
+  );
+}
+
+export function BackupForm({ onDone, onClose }: { onDone: (password: string) => Promise<void>; onClose: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  return (
+    <Modal title="Sao lưu mã hóa" onClose={onClose}>
+      <p className="form-note">File chỉ mở được bằng mật khẩu này. Daily Money không lưu mật khẩu; quên mật khẩu thì không thể khôi phục file.</p>
+      <label className="field"><span>Mật khẩu backup</span><input type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>
+      <label className="field"><span>Nhập lại mật khẩu</span><input type="password" value={confirm} onChange={event => setConfirm(event.target.value)} /></label>
+      <p className="form-error">{error}</p>
+      <button className="primary full" onClick={() => { if (password !== confirm) return setError("Hai mật khẩu chưa trùng nhau."); void onDone(password).catch(error => setError(error instanceof Error ? error.message : "Không thể tạo backup.")); }}>Tạo file backup</button>
+    </Modal>
+  );
+}
+
+export function RestoreForm({ onRestore, onClose, inputRef }: { inputRef: React.RefObject<HTMLInputElement | null>; onRestore: (file: File, password: string) => Promise<void>; onClose: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  return (
+    <Modal title="Khôi phục backup" onClose={onClose}>
+      <label className="file-field"><Upload size={20} /><span>{file?.name ?? "Chọn file .dailymoney"}</span><input type="file" accept="application/json,.dailymoney" onChange={event => setFile(event.target.files?.[0] ?? null)} ref={inputRef as React.RefObject<HTMLInputElement>} /></label>
+      <label className="field"><span>Mật khẩu backup</span><input type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>
+      <p className="form-error">{error}</p>
+      <button className="primary full" disabled={!file || !password} onClick={() => { if (file) void onRestore(file, password).catch(error => setError(error instanceof Error ? error.message : "Khôi phục thất bại.")); }}>Kiểm tra và khôi phục</button>
+    </Modal>
+  );
+}
+
+export function ReminderForm({ settings, onSave, onClose }: { settings: AppSettings; onSave: (enabled: boolean, time: string) => Promise<void>; onClose: () => void }) {
+  const [enabled, setEnabled] = useState(settings.reminderEnabled ?? false);
+  const [time, setTime] = useState(settings.reminderTime ?? "20:00");
+  const [error, setError] = useState("");
+  const native = isNativeApp();
+  if (!native && !supportsWebPush()) return (
+    <Modal title="Nhắc ghi chép hằng ngày" onClose={onClose}>
+      <p className="form-note">Để nhận thông báo PWA trên iPhone, hãy mở Daily Money từ icon đã thêm vào Màn hình chính và bảo đảm iOS cho phép thông báo.</p>
+      <button className="primary full" onClick={onClose}>Đã hiểu</button>
+    </Modal>
+  );
+  return (
+    <Modal title="Nhắc ghi chép hằng ngày" onClose={onClose}>
+      <p className="form-note">{native ? "Thiết bị lưu lịch trực tiếp, kể cả khi app đóng." : "Cloudflare chỉ lưu endpoint thông báo; dữ liệu tài chính vẫn ở trên máy."}</p>
+      <label className="checkbox"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /> Bật nhắc mỗi ngày</label>
+      <label className="field"><span>Giờ nhắc</span><input type="time" value={time} onChange={event => setTime(event.target.value)} disabled={!enabled} /></label>
+      <p className="form-error">{error}</p>
+      <button className="primary full" onClick={() => void onSave(enabled, time).catch(value => setError(value instanceof Error ? value.message : "Không thể đặt lịch nhắc."))}>{enabled ? "Cho phép và lưu nhắc" : "Tắt nhắc"}</button>
+    </Modal>
+  );
+}
+
+export function PinForm({ settings, onSave, onDisable, onClose }: { settings: AppSettings; onSave: (pin: string) => Promise<void>; onDisable: () => Promise<void>; onClose: () => void }) {
+  const [pin, setPin] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  return (
+    <Modal title={settings.lockEnabled ? "Đổi mã PIN" : "Bật mã PIN"} onClose={onClose}>
+      <p className="form-note">PIN chỉ khóa giao diện. Dữ liệu backup vẫn được mã hóa bằng mật khẩu riêng.</p>
+      <label className="field"><span>Mã PIN gồm 6 số</span><input inputMode="numeric" maxLength={6} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, ""))} /></label>
+      <label className="field"><span>Nhập lại PIN</span><input inputMode="numeric" maxLength={6} value={confirm} onChange={event => setConfirm(event.target.value.replace(/\D/g, ""))} /></label>
+      <p className="form-error">{error}</p>
+      <button className="primary full" onClick={() => { if (pin.length !== 6) return setError("PIN cần đúng 6 số."); if (pin !== confirm) return setError("PIN chưa trùng nhau."); void onSave(pin); }}>Lưu PIN</button>
+      {settings.lockEnabled && <button className="text-button danger-text full" onClick={() => { if (window.confirm("Tắt khóa PIN?")) void onDisable(); }}>Tắt PIN</button>}
+    </Modal>
+  );
+}
+
+export function CategoryManager({ categories, onChange, onClose }: { categories: Category[]; onChange: () => Promise<void>; onClose: () => void }) {
+  const [kind, setKind] = useState<Category["kind"]>("expense");
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("#7c5cff");
+  const visible = categories.filter(category => category.kind === kind && !category.archived);
+  return (
+    <Modal title="Danh mục" onClose={onClose}>
+      <div className="kind-switch">
+        <button className={kind === "expense" ? "selected expense-bg" : ""} onClick={() => setKind("expense")}>Chi</button>
+        <button className={kind === "income" ? "selected income-bg" : ""} onClick={() => setKind("income")}>Thu</button>
+      </div>
+      <div className="inline-form">
+        <input value={name} onChange={event => setName(event.target.value)} placeholder="Tên danh mục mới" />
+        <input aria-label="Màu danh mục" type="color" value={color} onChange={event => setColor(event.target.value)} />
+        <button className="soft" disabled={!name.trim()} onClick={() => void (async () => { await db.categories.add({ id: newId(), kind, name: name.trim(), icon: "Circle", color, archived: false, builtIn: false, createdAt: new Date().toISOString() }); setName(""); await onChange(); })()}>Thêm</button>
+      </div>
+      <div className="category-list">
+        {visible.map(category => (
+          <div className="category-manage-row" key={category.id}>
+            <i style={{ background: category.color }} /><span>{category.name}</span>
+            {!category.builtIn && <button className="text-button" onClick={() => void (async () => { await db.categories.update(category.id, { archived: true }); await onChange(); })()}>Lưu trữ</button>}
+          </div>
+        ))}
+      </div>
+      <p className="form-note">Danh mục mặc định được giữ để các giao dịch cũ luôn hiển thị chính xác. Danh mục tự tạo có thể lưu trữ.</p>
+    </Modal>
+  );
+}
+
+export function OpeningBalanceForm({ current, onSave, onClose }: { current: number; onSave: (value: number) => Promise<void>; onClose: () => void }) {
+  const [amount, setAmount] = useState(String(current));
+  return (
+    <Modal title="Số dư đầu kỳ" onClose={onClose}>
+      <p className="form-note">Giá trị này là mốc bắt đầu cho số dư chung. Các giao dịch đã ghi sẽ được cộng/trừ từ mốc này.</p>
+      <AmountInput value={amount} onChange={setAmount} />
+      <button className="primary full" onClick={() => void onSave(Number(amount || 0))}>Lưu số dư đầu kỳ</button>
+    </Modal>
+  );
+}
