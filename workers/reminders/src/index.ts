@@ -20,6 +20,8 @@ type ReminderRow = {
   reminder_time: string;
 };
 
+const MAX_TOTAL_SUBSCRIPTIONS = 1_000;
+
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 const invalid = (message: string) => json({ error: message }, 400);
 const validTime = (value: unknown): value is string => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
@@ -29,7 +31,14 @@ function vietnamNow() {
   return { date: `${value("year")}-${value("month")}-${value("day")}`, time: `${value("hour")}:${value("minute")}` };
 }
 
-async function sendReminder(env: Env, row: ReminderRow) {
+async function sendReminder(env: Env, row: ReminderRow, date: string) {
+  // Claim the reminder before sending so cron retries or overlapping runs cannot
+  // deliver the same daily notification twice to an endpoint.
+  const claim = await env.REMINDERS.prepare("UPDATE subscriptions SET last_sent_date = ? WHERE endpoint = ? AND (last_sent_date IS NULL OR last_sent_date <> ?)")
+    .bind(date, row.endpoint, date)
+    .run();
+  if (!claim.meta.changes) return false;
+
   webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
   try {
     await webpush.sendNotification(JSON.parse(row.subscription_json) as StoredSubscription, JSON.stringify({ title: "Daily Money", body: "Dành một phút ghi lại các khoản thu chi hôm nay.", tag: "daily-money-reminder", url: "/" }));
@@ -37,6 +46,7 @@ async function sendReminder(env: Env, row: ReminderRow) {
   } catch (error) {
     const statusCode = error instanceof webpush.WebPushError ? error.statusCode : 0;
     if (statusCode === 404 || statusCode === 410) await env.REMINDERS.prepare("DELETE FROM subscriptions WHERE endpoint = ?").bind(row.endpoint).run();
+    else await env.REMINDERS.prepare("UPDATE subscriptions SET last_sent_date = NULL WHERE endpoint = ? AND last_sent_date = ?").bind(row.endpoint, date).run();
     console.error("Unable to send reminder", statusCode || error);
     return false;
   }
@@ -95,8 +105,10 @@ async function handleApi(request: Request, env: Env, path: string) {
       if (!limit.success) return json({ error: "Bạn đã thao tác quá nhanh. Vui lòng thử lại sau một phút." }, 429);
       const body = await readJson<{ subscription?: unknown; time?: unknown }>();
       if (!body || !validSubscriptionStrict(body.subscription) || !validTime(body.time)) return invalid("Subscription hoặc giờ nhắc không hợp lệ.");
-      const result = await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) SELECT ?, ?, ?, datetime('now') WHERE EXISTS (SELECT 1 FROM subscriptions WHERE endpoint = ?) OR (SELECT COUNT(*) FROM subscriptions) < 5 ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at").bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time, body.subscription.endpoint).run();
-      if (!result.meta.changes) return json({ error: "Daily Money đã đạt giới hạn 5 thiết bị nhận nhắc. Hãy tắt nhắc trên thiết bị cũ trước." }, 429);
+      const result = await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) SELECT ?, ?, ?, datetime('now') WHERE EXISTS (SELECT 1 FROM subscriptions WHERE endpoint = ?) OR (SELECT COUNT(*) FROM subscriptions) < ? ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at")
+        .bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time, body.subscription.endpoint, MAX_TOTAL_SUBSCRIPTIONS)
+        .run();
+      if (!result.meta.changes) return json({ error: "Dịch vụ reminder đang đạt giới hạn vận hành. Vui lòng thử lại sau." }, 503);
       return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin } });
     } catch {
       return invalid("Request không hợp lệ.");
@@ -105,6 +117,9 @@ async function handleApi(request: Request, env: Env, path: string) {
 
   if (path === "/api/reminders/unsubscribe" && request.method === "POST") {
     try {
+      const clientKey = request.headers.get("cf-connecting-ip") ?? "unknown-client";
+      const limit = await env.SUBSCRIPTION_LIMITER.limit({ key: `unsubscribe:${clientKey}` });
+      if (!limit.success) return json({ error: "Bạn đã thao tác quá nhanh. Vui lòng thử lại sau một phút." }, 429);
       const body = await readJson<{ endpoint?: unknown }>();
       if (!body || typeof body.endpoint !== "string" || body.endpoint.length > 2048) return invalid("Endpoint không hợp lệ.");
       await env.REMINDERS.prepare("DELETE FROM subscriptions WHERE endpoint = ?").bind(body.endpoint).run();
@@ -124,6 +139,6 @@ export default {
   async scheduled(_controller, env) {
     const now = vietnamNow();
     const { results = [] } = await env.REMINDERS.prepare("SELECT endpoint, subscription_json, reminder_time FROM subscriptions WHERE reminder_time = ?").bind(now.time).all<ReminderRow>();
-    await Promise.all(results.map(row => sendReminder(env, row)));
+    await Promise.all(results.map(row => sendReminder(env, row, now.date)));
   }
 } satisfies ExportedHandler<Env>;
