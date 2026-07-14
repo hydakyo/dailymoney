@@ -1,4 +1,5 @@
 import React from "react";
+import { formatAmountInput, normalizeAmountInput } from "../../amount";
 
 export function AmountInput({ value, onChange, label = "Số tiền" }: { value: string; onChange: (value: string) => void; label?: string }) {
   return (
@@ -7,8 +8,8 @@ export function AmountInput({ value, onChange, label = "Số tiền" }: { value:
       <input 
         inputMode="numeric" 
         placeholder="0" 
-        value={value} 
-        onChange={event => onChange(event.target.value.replace(/\D/g, ""))} 
+        value={formatAmountInput(value)}
+        onChange={event => onChange(normalizeAmountInput(event.target.value))}
       />
     </label>
   );

@@ -4,6 +4,7 @@ import type { Category, EditableTransactionKind, RecurringRule, Transaction } fr
 import { today } from "./domain";
 import { parseVoiceTransaction } from "./voice";
 import { parseBankSms } from "./bank-parser";
+import { formatAmountInput, normalizeAmountInput } from "./amount";
 
 type TransactionInput = {
   id?: string;
@@ -181,7 +182,7 @@ export function VoiceTransactionForm({
 
         <label className="field">
           <span>Số tiền</span>
-          <input inputMode="numeric" placeholder="0" value={amount} onChange={event => setAmount(event.target.value.replace(/\D/g, ""))} />
+          <input inputMode="numeric" placeholder="0" value={formatAmountInput(amount)} onChange={event => setAmount(normalizeAmountInput(event.target.value))} />
         </label>
 
         <label className="field">
