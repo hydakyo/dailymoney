@@ -17,6 +17,17 @@ describe("finance calculations", () => {
     expect(totalBalance(wallets, [transaction("income", 400_000), transaction("expense", 125_000)])).toBe(1_275_000);
   });
 
+  it("moves money between wallets without changing the total balance", () => {
+    const wallets: Wallet[] = [
+      { id: "w1", name: "Cash", initialBalance: 1_000_000, color: "", icon: "", archived: false, createdAt: "", updatedAt: "" },
+      { id: "w2", name: "Bank", initialBalance: 2_000_000, color: "", icon: "", archived: false, createdAt: "", updatedAt: "" }
+    ];
+    const transfer = { ...transaction("transfer", 400_000, "2026-07-13", "w1"), toWalletId: "w2" };
+    expect(walletBalance(wallets[0], [transfer])).toBe(600_000);
+    expect(walletBalance(wallets[1], [transfer])).toBe(2_400_000);
+    expect(totalBalance(wallets, [transfer])).toBe(3_000_000);
+  });
+
   it("totals only the requested month", () => {
     const totals = monthTotals([transaction("income", 300_000, "2026-07-01"), transaction("expense", 80_000, "2026-07-03"), transaction("expense", 50_000, "2026-06-30")], "2026-07");
     expect(totals).toEqual({ income: 300_000, expense: 80_000 });

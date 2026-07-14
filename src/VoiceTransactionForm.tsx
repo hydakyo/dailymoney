@@ -54,7 +54,6 @@ export function VoiceTransactionForm({
 
   const recognitionRef = useRef<SpeechRecognizer | null>(null);
   const transcriptRef = useRef("");
-  const hasResultRef = useRef(false);
   const hasErrorRef = useRef(false);
   
   const relevant = categories.filter(category => category.kind === kind && !category.archived);
@@ -81,7 +80,6 @@ export function VoiceTransactionForm({
     setVoiceError("");
     setVoiceStatus("");
     transcriptRef.current = "";
-    hasResultRef.current = false;
     hasErrorRef.current = false;
     const browser = window as Window & { SpeechRecognition?: SpeechRecognizerConstructor; webkitSpeechRecognition?: SpeechRecognizerConstructor };
     const Recognition = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
@@ -92,12 +90,12 @@ export function VoiceTransactionForm({
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.onresult = event => {
-      const text = Array.from(event.results).slice(event.resultIndex).map(result => result[0]?.transcript ?? "").join(" ").trim();
+      const results = Array.from(event.results);
+      const text = results.map(result => result[0]?.transcript ?? "").join(" ").trim();
       if (!text) return;
       transcriptRef.current = text;
       setVoiceStatus(`Đã nghe: “${text}”`);
-      if (Array.from(event.results).slice(event.resultIndex).some(result => result.isFinal)) {
-        hasResultRef.current = true;
+      if (results.slice(event.resultIndex).some(result => result.isFinal)) {
         applyTranscript(text);
       }
     };
@@ -107,10 +105,9 @@ export function VoiceTransactionForm({
     };
     recognition.onend = () => {
       setListening(false);
-      if (!hasResultRef.current && transcriptRef.current) {
-        hasResultRef.current = true;
+      if (transcriptRef.current) {
         applyTranscript(transcriptRef.current);
-      } else if (!hasResultRef.current && !hasErrorRef.current) {
+      } else if (!hasErrorRef.current) {
         setVoiceError("Không nhận diện được văn bản.");
       }
     };

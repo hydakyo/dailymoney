@@ -47,21 +47,58 @@ async function sendReminder(env: Env, row: ReminderRow) {
   }
 }
 
+const ALLOWED_ORIGINS = ["https://dm.kelvin.io.vn", "http://localhost:5173", "http://localhost:4173"];
+
 async function handleApi(request: Request, env: Env, path: string) {
-  if (path === "/api/reminders/vapid-key" && request.method === "GET") return json({ publicKey: env.VAPID_PUBLIC_KEY });
+  const origin = request.headers.get("Origin");
+  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+    return json({ error: "Origin không được phép." }, 403);
+  }
+
+  // Preflight check
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": origin || "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }
+
+  if (path === "/api/reminders/vapid-key" && request.method === "GET") {
+    return new Response(JSON.stringify({ publicKey: env.VAPID_PUBLIC_KEY }), {
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin || "*" },
+    });
+  }
+
+  // Helper to read and limit body size to 8KB
+  const readJson = async <T>() => {
+    const text = await request.text();
+    if (text.length > 8192) throw new Error("Payload quá lớn");
+    return JSON.parse(text) as T;
+  };
 
   if (path === "/api/reminders/subscribe" && request.method === "POST") {
-    const body = await request.json<{ subscription?: unknown; time?: unknown }>().catch(() => null);
-    if (!body || !validSubscription(body.subscription) || !validTime(body.time)) return invalid("Subscription hoặc giờ nhắc không hợp lệ.");
-    await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at").bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time).run();
-    return json({ ok: true });
+    try {
+      const body = await readJson<{ subscription?: unknown; time?: unknown }>();
+      if (!body || !validSubscription(body.subscription) || !validTime(body.time)) return invalid("Subscription hoặc giờ nhắc không hợp lệ.");
+      await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at").bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time).run();
+      return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin || "*" } });
+    } catch {
+      return invalid("Request không hợp lệ.");
+    }
   }
 
   if (path === "/api/reminders/unsubscribe" && request.method === "POST") {
-    const body = await request.json<{ endpoint?: unknown }>().catch(() => null);
-    if (!body || typeof body.endpoint !== "string") return invalid("Endpoint không hợp lệ.");
-    await env.REMINDERS.prepare("DELETE FROM subscriptions WHERE endpoint = ?").bind(body.endpoint).run();
-    return json({ ok: true });
+    try {
+      const body = await readJson<{ endpoint?: unknown }>();
+      if (!body || typeof body.endpoint !== "string") return invalid("Endpoint không hợp lệ.");
+      await env.REMINDERS.prepare("DELETE FROM subscriptions WHERE endpoint = ?").bind(body.endpoint).run();
+      return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin || "*" } });
+    } catch {
+      return invalid("Request không hợp lệ.");
+    }
   }
 
   return json({ error: "Không tìm thấy API." }, 404);

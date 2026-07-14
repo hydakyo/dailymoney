@@ -142,13 +142,13 @@ export async function restoreBackup(payload: BackupPayloadV1 | BackupPayloadV2 |
     await db.settings.put(payload.settings);
     await db.categories.bulkAdd(payload.categories);
     await db.transactions.bulkAdd(payload.transactions);
-    await db.budgets.bulkAdd(payload.budgets);
-    await db.recurringRules.bulkAdd(payload.recurringRules);
-    await db.recurringOccurrences.bulkAdd(payload.recurringOccurrences);
-    await db.debts.bulkAdd(payload.debts);
-    await db.debtPayments.bulkAdd(payload.debtPayments);
-    await db.goals.bulkAdd(payload.goals);
-    await db.goalEntries.bulkAdd(payload.goalEntries);
+    await db.budgets.bulkAdd(payload.budgets ?? []);
+    await db.recurringRules.bulkAdd(payload.recurringRules ?? []);
+    await db.recurringOccurrences.bulkAdd(payload.recurringOccurrences ?? []);
+    await db.debts.bulkAdd(payload.debts ?? []);
+    await db.debtPayments.bulkAdd(payload.debtPayments ?? []);
+    await db.goals.bulkAdd(payload.goals ?? []);
+    await db.goalEntries.bulkAdd(payload.goalEntries ?? []);
 
     if (payload.schemaVersion >= 3) {
       await db.installments.bulkAdd((payload as BackupPayloadV3).installments);

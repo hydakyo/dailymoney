@@ -1,4 +1,5 @@
-import type { BackupPayloadV1 } from "./domain";
+import type { BackupPayload } from "./domain";
+import { BackupSchema } from "./domain";
 
 export interface EncryptedBackup {
   format: "daily-money-encrypted";
@@ -30,7 +31,7 @@ async function keyFromPassword(password: string, salt: Uint8Array, iterations: n
   return crypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt: asBufferSource(salt), iterations }, material, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
 
-export async function encryptBackup(payload: BackupPayloadV1, password: string): Promise<EncryptedBackup> {
+export async function encryptBackup(payload: BackupPayload, password: string): Promise<EncryptedBackup> {
   if (password.length < 10) throw new Error("Mật khẩu backup cần ít nhất 10 ký tự.");
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -43,15 +44,20 @@ export async function encryptBackup(payload: BackupPayloadV1, password: string):
   };
 }
 
-export async function decryptBackup(value: EncryptedBackup, password: string): Promise<BackupPayloadV1> {
+export async function decryptBackup(value: EncryptedBackup, password: string): Promise<BackupPayload> {
   if (value.format !== "daily-money-encrypted" || value.version !== 1) throw new Error("File backup không đúng định dạng Daily Money.");
   try {
     const key = await keyFromPassword(password, fromBase64(value.kdf.salt), value.kdf.iterations);
     const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: asBufferSource(fromBase64(value.cipher.iv)) }, key, asBufferSource(fromBase64(value.cipher.ciphertext)));
-    const payload = JSON.parse(decoder.decode(plain)) as BackupPayloadV1;
-    if (payload.schemaVersion !== 1 || !payload.settings || !Array.isArray(payload.transactions)) throw new Error("Nội dung backup không hợp lệ.");
-    return payload;
-  } catch {
+    const payload = JSON.parse(decoder.decode(plain));
+    const parsed = BackupSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.error("Lỗi xác thực backup:", parsed.error);
+      throw new Error("Nội dung backup không hợp lệ hoặc bị hỏng.");
+    }
+    return parsed.data;
+  } catch (err: any) {
+    if (err.message.includes("không hợp lệ")) throw err;
     throw new Error("Không thể mở backup. Kiểm tra lại mật khẩu hoặc file.");
   }
 }
@@ -65,7 +71,11 @@ export function downloadFile(name: string, body: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+function neutralizeFormula(value: string) {
+  return /^[=+\-@]/.test(value) ? `'${value}` : value;
+}
+
 export function transactionsCsv(rows: Array<{ date: string; kind: string; category: string; amount: number; note?: string }>) {
   const escape = (value: string | number | undefined) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-  return "\uFEFFNgày,Loại,Danh mục,Số tiền,Ghi chú\n" + rows.map(row => [row.date, row.kind === "income" ? "Thu" : "Chi", row.category, row.amount, row.note].map(escape).join(",")).join("\n");
+  return "\uFEFFNgày,Loại,Danh mục,Số tiền,Ghi chú\n" + rows.map(row => [row.date, row.kind === "income" ? "Thu" : "Chi", neutralizeFormula(row.category), row.amount, neutralizeFormula(row.note ?? "")].map(escape).join(",")).join("\n");
 }

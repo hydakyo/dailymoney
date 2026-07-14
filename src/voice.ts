@@ -8,7 +8,9 @@ function amountFromSpeech(text: string) {
   if (!candidates.length) return 0;
   const match = candidates.sort((left, right) => scoreMoney(right) - scoreMoney(left))[0];
   const raw = match[1].replace(/\s/g, "");
-  const number = Number(raw.replace(/[.,]/g, ""));
+  const number = match[2] && /^\d+[.,]\d{1,2}$/.test(raw)
+    ? Number(raw.replace(",", "."))
+    : Number(raw.replace(/[.,]/g, ""));
   if (!Number.isFinite(number)) return 0;
   if (match[2]?.startsWith("tr")) return number * 1_000_000;
   if (match[2]) return number * 1_000;
@@ -23,14 +25,20 @@ function scoreMoney(match: RegExpMatchArray) {
 }
 
 function dateFromSpeech(text: string) {
-  const match = normalized(text).match(/ngay\s+(\d{1,2})(?:\s+thang\s+(\d{1,2})(?:\s+nam\s+(\d{4}))?)?/);
-  if (!match) return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
-  const now = new Date();
-  const year = Number(match[3] ?? now.getFullYear());
-  const month = Number(match[2] ?? now.getMonth() + 1);
+  const fallback = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+  const value = normalized(text);
+  if (/\b(hom qua|hqua)\b/.test(value)) {
+    const yesterday = new Date(`${fallback}T00:00:00Z`);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    return yesterday.toISOString().slice(0, 10);
+  }
+  const match = value.match(/ngay\s+(\d{1,2})(?:\s+thang\s+(\d{1,2})(?:\s+nam\s+(\d{4}))?)?/);
+  if (!match) return fallback;
+  const year = Number(match[3] ?? fallback.slice(0, 4));
+  const month = Number(match[2] ?? fallback.slice(5, 7));
   const day = Number(match[1]);
   const candidate = new Date(Date.UTC(year, month - 1, day));
-  if (candidate.getUTCFullYear() !== year || candidate.getUTCMonth() !== month - 1 || candidate.getUTCDate() !== day) return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+  if (candidate.getUTCFullYear() !== year || candidate.getUTCMonth() !== month - 1 || candidate.getUTCDate() !== day) return fallback;
   return candidate.toISOString().slice(0, 10);
 }
 

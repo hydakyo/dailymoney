@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { parseVoiceTransaction } from "./voice";
 import type { Category } from "./domain";
 
@@ -9,6 +9,13 @@ const categories: Category[] = [
 ];
 
 describe("voice transaction parser", () => {
+  beforeAll(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-14T05:00:00.000Z"));
+  });
+
+  afterAll(() => vi.useRealTimers());
+
   it("extracts a Vietnamese food expense in thousands", () => {
     expect(parseVoiceTransaction("Hôm nay cà phê 35 nghìn", categories)).toMatchObject({ kind: "expense", amount: 35_000, categoryId: "food" });
   });
@@ -23,5 +30,13 @@ describe("voice transaction parser", () => {
 
   it("keeps a plain amount when the date is spoken after it", () => {
     expect(parseVoiceTransaction("Ăn tối 64000 ngày 13 tháng 7", categories)).toMatchObject({ amount: 64_000, categoryId: "food", date: "2026-07-13" });
+  });
+
+  it("understands decimal millions from speech recognition", () => {
+    expect(parseVoiceTransaction("Nhận lương 1,5 triệu", categories)).toMatchObject({ kind: "income", amount: 1_500_000, categoryId: "salary" });
+  });
+
+  it("uses yesterday in the Vietnam timezone", () => {
+    expect(parseVoiceTransaction("Hôm qua cà phê 35 nghìn", categories)).toMatchObject({ amount: 35_000, categoryId: "food", date: "2026-07-13" });
   });
 });
