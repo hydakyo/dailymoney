@@ -80,6 +80,9 @@ export function HomeView({
             <small>
               Còn {forecast.daysRemaining} ngày · dựa trên chi tiêu hiện tại, lịch lặp, trả góp và ngân sách còn lại.
             </small>
+            {forecast.expectedInstallmentPeriods > 0 && (
+              <small className="forecast-installments">Trả góp dự kiến: {formatVnd(forecast.expectedInstallments)} · bao gồm {forecast.expectedInstallmentPeriods} kỳ chưa thanh toán.</small>
+            )}
           </div>
         </Card>
       )}

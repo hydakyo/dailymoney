@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDueDate, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, installmentPeriods, monthForecast, monthTotals, oldestUnpaidInstallmentPeriod } from "./finance";
+import { advanceDueDate, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, installmentPeriods, monthForecast, monthTotals, normalizeInstallmentPayments, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "./finance";
 import type { Budget, Category, Debt, DebtPayment, GoalEntry, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 
 const transaction = (kind: Transaction["kind"], amount: number, date = "2026-07-13", walletId = "w1"): Transaction => ({
@@ -98,6 +98,42 @@ describe("finance calculations", () => {
 
   it("forecasts every unpaid installment period that is due by month end", () => {
     const installment = { id: "phone", name: "Phone", totalAmount: 3_000_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-05-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
-    expect(monthForecast({ balance: 5_000_000, month: "2026-07", transactions: [], rules: [], occurrences: [], installments: [installment], budgets: [], asOf: new Date(2026, 6, 14) })?.expectedInstallments).toBe(1_500_000);
+    const forecast = monthForecast({ balance: 5_000_000, month: "2026-07", transactions: [], rules: [], occurrences: [], installments: [installment], budgets: [], asOf: new Date(2026, 6, 14) });
+    expect(forecast?.expectedInstallments).toBe(1_500_000);
+    expect(forecast?.expectedInstallmentPeriods).toBe(3);
+  });
+
+  it("maps legacy installment payments to obligation periods instead of payment months", () => {
+    const installment = { id: "phone", name: "Phone", totalAmount: 1_500_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-05-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
+    const payments = [
+      { ...transaction("expense", 500_000, "2026-05-20"), id: "first", installmentId: "phone", createdAt: "2026-05-20T10:00:00.000Z" },
+      { ...transaction("expense", 500_000, "2026-06-20"), id: "second", installmentId: "phone", createdAt: "2026-06-20T10:00:00.000Z" },
+      { ...transaction("expense", 500_000, "2026-08-02"), id: "late", installmentId: "phone", createdAt: "2026-08-02T10:00:00.000Z" }
+    ];
+
+    const normalized = normalizeInstallmentPayments(payments, [installment]);
+    expect(normalized.map(payment => payment.installmentPeriod)).toEqual(["2026-05", "2026-06", "2026-07"]);
+    expect(paidInstallmentPeriods(installment, normalized).size).toBe(3);
+    expect(oldestUnpaidInstallmentPeriod(installment, normalized)).toBeUndefined();
+  });
+
+  it("keeps multiple legacy catch-up payments in the same month as separate periods", () => {
+    const installment = { id: "phone", name: "Phone", totalAmount: 1_500_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-05-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
+    const payments = [
+      { ...transaction("expense", 500_000, "2026-08-01"), id: "catch-up-1", installmentId: "phone", createdAt: "2026-08-01T10:00:00.000Z" },
+      { ...transaction("expense", 500_000, "2026-08-01"), id: "catch-up-2", installmentId: "phone", createdAt: "2026-08-01T10:01:00.000Z" }
+    ];
+
+    expect(normalizeInstallmentPayments(payments, [installment]).map(payment => payment.installmentPeriod)).toEqual(["2026-05", "2026-06"]);
+  });
+
+  it("preserves valid assigned periods when reconciling later app launches", () => {
+    const installment = { id: "phone", name: "Phone", totalAmount: 1_500_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-05-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
+    const payments = [
+      { ...transaction("expense", 500_000, "2026-05-20"), id: "may", installmentId: "phone", installmentPeriod: "2026-05" },
+      { ...transaction("expense", 500_000, "2026-07-20"), id: "july", installmentId: "phone", installmentPeriod: "2026-07" }
+    ];
+
+    expect(normalizeInstallmentPayments(payments, [installment]).map(payment => payment.installmentPeriod)).toEqual(["2026-05", "2026-07"]);
   });
 });

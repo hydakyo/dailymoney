@@ -10,6 +10,7 @@ export type MonthForecast = {
   expectedIncome: number;
   expectedRecurringExpense: number;
   expectedInstallments: number;
+  expectedInstallmentPeriods: number;
   projectedFlexibleExpense: number;
   remainingBudget: number;
   daysRemaining: number;
@@ -23,9 +24,61 @@ export function installmentPeriods(installment: Installment) {
   });
 }
 
+export function paidInstallmentPeriods(installment: Installment, transactions: Transaction[]) {
+  const expectedPeriods = new Set(installmentPeriods(installment));
+  return new Set(
+    transactions
+      .filter(transaction => transaction.installmentId === installment.id && transaction.installmentPeriod && expectedPeriods.has(transaction.installmentPeriod))
+      .map(transaction => transaction.installmentPeriod as string),
+  );
+}
+
 export function oldestUnpaidInstallmentPeriod(installment: Installment, transactions: Transaction[]) {
-  const paidPeriods = new Set(transactions.filter(transaction => transaction.installmentId === installment.id && transaction.installmentPeriod).map(transaction => transaction.installmentPeriod));
+  const paidPeriods = paidInstallmentPeriods(installment, transactions);
   return installmentPeriods(installment).find(period => !paidPeriods.has(period));
+}
+
+export function normalizeInstallmentPayments(transactions: Transaction[], installments: Installment[]) {
+  const normalized = transactions.map(transaction => ({ ...transaction }));
+  const installmentsById = new Map(installments.map(installment => [installment.id, installment]));
+  const paymentsByInstallment = new Map<string, Transaction[]>();
+
+  for (const transaction of normalized) {
+    if (!transaction.installmentId) continue;
+    if (!installmentsById.has(transaction.installmentId)) {
+      transaction.installmentId = undefined;
+      transaction.installmentPeriod = undefined;
+      continue;
+    }
+    const payments = paymentsByInstallment.get(transaction.installmentId) ?? [];
+    payments.push(transaction);
+    paymentsByInstallment.set(transaction.installmentId, payments);
+  }
+
+  for (const [installmentId, payments] of paymentsByInstallment) {
+    const periods = installmentPeriods(installmentsById.get(installmentId)!);
+    const expectedPeriods = new Set(periods);
+    const assignedPeriods = new Set<string>();
+    const alreadyCanonical = payments.every(payment => {
+      const period = payment.installmentPeriod;
+      if (!period || !expectedPeriods.has(period) || assignedPeriods.has(period)) return false;
+      assignedPeriods.add(period);
+      return true;
+    });
+    if (alreadyCanonical) continue;
+
+    payments.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    payments.forEach((payment, index) => {
+      const period = periods[index];
+      if (period) payment.installmentPeriod = period;
+      else {
+        payment.installmentId = undefined;
+        payment.installmentPeriod = undefined;
+      }
+    });
+  }
+
+  return normalized;
 }
 
 export function walletBalance(wallet: Wallet, transactions: Transaction[]) {
@@ -120,18 +173,22 @@ export function monthForecast({
     else expectedRecurringExpense += rule.amount;
   }
 
-  const expectedInstallments = installments.reduce((sum, installment) => {
-    if (installment.closedAt) return sum;
-    const paidPeriods = new Set(transactions.filter(transaction => transaction.installmentId === installment.id && transaction.installmentPeriod).map(transaction => transaction.installmentPeriod));
+  let expectedInstallments = 0;
+  let expectedInstallmentPeriods = 0;
+  for (const installment of installments) {
+    if (installment.closedAt) continue;
+    const paidPeriods = paidInstallmentPeriods(installment, transactions);
     const dueUnpaidCount = installmentPeriods(installment).filter(period => period <= month && !paidPeriods.has(period)).length;
-    return sum + dueUnpaidCount * installment.monthlyAmount;
-  }, 0);
+    expectedInstallments += dueUnpaidCount * installment.monthlyAmount;
+    expectedInstallmentPeriods += dueUnpaidCount;
+  }
 
   return {
     projectedBalance: balance + expectedIncome - expectedRecurringExpense - expectedInstallments - projectedFlexibleExpense,
     expectedIncome,
     expectedRecurringExpense,
     expectedInstallments,
+    expectedInstallmentPeriods,
     projectedFlexibleExpense,
     remainingBudget,
     daysRemaining

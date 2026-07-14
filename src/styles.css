@@ -215,6 +215,7 @@ button:focus-visible, a:focus-visible {
 .forecast-card p { color: var(--text-muted); font-size: 13px; margin: 0 0 3px; }
 .forecast-card strong { display: block; font-size: 21px; margin-bottom: 4px; }
 .forecast-card small { color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+.forecast-card .forecast-installments { display: block; margin-top: 4px; }
 
 .month-switch {
   gap: 10px;

@@ -4,7 +4,7 @@ import { decryptBackup, downloadFile, encryptBackup, transactionsCsv, type Encry
 import { db, exportBackup, restoreBackup } from "./db";
 import { currentMonth, formatVnd, newId, today } from "./domain";
 import type { EditableTransactionKind, RecurringRule, Transaction } from "./domain";
-import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, monthForecast, monthTotals, oldestUnpaidInstallmentPeriod } from "./finance";
+import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, monthForecast, monthTotals, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "./finance";
 import { addMonths } from "./utils";
 import { clearDailyReminder, isNativeApp, setDailyReminder } from "./notifications";
 import { clearWebPushReminder, setWebPushReminder, supportsWebPush } from "./web-push";
@@ -271,12 +271,8 @@ export default function App() {
                 await db.transactions.delete(id);
                 if (tx.installmentId) {
                   const installment = await db.installments.get(tx.installmentId);
-                  const paidPeriods = new Set(
-                    (await db.transactions.where("installmentId").equals(tx.installmentId).toArray())
-                      .map(payment => payment.installmentPeriod)
-                      .filter((period): period is string => Boolean(period)),
-                  );
-                  const paidCount = paidPeriods.size;
+                  const payments = await db.transactions.where("installmentId").equals(tx.installmentId).toArray();
+                  const paidCount = installment ? paidInstallmentPeriods(installment, payments).size : 0;
                   if (installment && paidCount < installment.totalMonths) {
                     await db.installments.update(installment.id, { closedAt: undefined, updatedAt: new Date().toISOString() });
                   }
@@ -363,14 +359,10 @@ export default function App() {
               const now = new Date().toISOString();
               await db.transaction("rw", db.transactions, db.installments, async () => {
                 const paidForPeriod = await db.transactions.where("[installmentId+installmentPeriod]").equals([installment.id, installmentPeriod]).first();
-                if (paidForPeriod) throw new Error("Kỳ trả góp tháng này đã được xác nhận.");
+                if (paidForPeriod) throw new Error("duplicate-installment-payment");
                 await db.transactions.add({ id: newId(), kind: "expense", amount: installment.monthlyAmount, categoryId: installment.categoryId, walletId: primaryWalletId, date: today(), note: `Trả góp: ${installment.name}`, installmentId: installment.id, installmentPeriod, createdAt: now, updatedAt: now });
-                const paidPeriods = new Set(
-                  (await db.transactions.where("installmentId").equals(installment.id).toArray())
-                    .map(payment => payment.installmentPeriod)
-                    .filter((period): period is string => Boolean(period)),
-                );
-                const paidCount = paidPeriods.size;
+                const payments = await db.transactions.where("installmentId").equals(installment.id).toArray();
+                const paidCount = paidInstallmentPeriods(installment, payments).size;
                 if (paidCount >= installment.totalMonths) await db.installments.update(installment.id, { closedAt: now, updatedAt: now });
               });
               await refresh();

@@ -2,6 +2,7 @@ import Dexie, { type EntityTable } from "dexie";
 import type { AppSettings, BackupPayloadV1, BackupPayloadV2, BackupPayloadV3, Budget, Category, Debt, DebtPayment, GoalEntry, Installment, RecurringOccurrence, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 import { defaultCategories } from "./seed";
 import { newId } from "./domain";
+import { normalizeInstallmentPayments, paidInstallmentPeriods } from "./finance";
 
 class DailyMoneyDatabase extends Dexie {
   settings!: EntityTable<AppSettings, "id">;
@@ -167,10 +168,41 @@ class DailyMoneyDatabase extends Dexie {
       }
       await trans.table("installments").bulkPut(installments);
     });
+
+    this.version(8).stores({
+      settings: "id", wallets: "id, archived", categories: "id, kind, archived",
+      transactions: "id, date, kind, categoryId, walletId, toWalletId, recurringRuleId, debtPaymentId, installmentId, installmentPeriod, [installmentId+installmentPeriod]",
+      budgets: "id, [month+categoryId], month, categoryId", recurringRules: "id, active, nextDueDate",
+      recurringOccurrences: "id, [ruleId+dueDate], status, dueDate", debts: "id, kind, dueDate, closedAt",
+      debtPayments: "id, debtId, date, transactionId", goals: "id, closedAt", goalEntries: "id, goalId, date",
+      installments: "id, closedAt, dueDate"
+    }).upgrade(async trans => {
+      const transactions = await trans.table("transactions").toArray() as Transaction[];
+      const installments = await trans.table("installments").toArray() as Installment[];
+      const reconciled = reconcileInstallmentPayments(transactions, installments);
+      await trans.table("transactions").bulkPut(reconciled.transactions);
+      await trans.table("installments").bulkPut(reconciled.installments);
+    });
   }
 }
 
 export const db = new DailyMoneyDatabase();
+
+function reconcileInstallmentPayments(transactions: Transaction[], installments: Installment[]) {
+  const normalizedTransactions = normalizeInstallmentPayments(transactions, installments);
+  const now = new Date().toISOString();
+  const normalizedInstallments = installments.map(installment => {
+    const closedAt = paidInstallmentPeriods(installment, normalizedTransactions).size === installment.totalMonths
+      ? installment.closedAt ?? now
+      : undefined;
+    return closedAt === installment.closedAt ? installment : { ...installment, closedAt, updatedAt: now };
+  });
+  return { transactions: normalizedTransactions, installments: normalizedInstallments };
+}
+
+function installmentLinkChanged(before: Transaction, after: Transaction) {
+  return before.installmentId !== after.installmentId || before.installmentPeriod !== after.installmentPeriod;
+}
 
 export async function initializeDatabase() {
   return db.transaction("rw", db.settings, db.categories, db.wallets, db.transactions, db.installments, async () => {
@@ -205,28 +237,12 @@ export async function initializeDatabase() {
     });
     if (duplicates.length) await db.categories.bulkDelete(duplicates.map(category => category.id));
     const transactions = await db.transactions.toArray();
-    const seenInstallmentPeriods = new Set<string>();
-    const correctedTransactions: Transaction[] = [];
-    for (const transaction of transactions) {
-      if (!transaction.installmentId) continue;
-      const installmentPeriod = transaction.installmentPeriod ?? transaction.date.slice(0, 7);
-      const key = `${transaction.installmentId}:${installmentPeriod}`;
-      if (seenInstallmentPeriods.has(key)) {
-        correctedTransactions.push({ ...transaction, installmentId: undefined, installmentPeriod: undefined });
-      } else if (transaction.installmentPeriod !== installmentPeriod) {
-        seenInstallmentPeriods.add(key);
-        correctedTransactions.push({ ...transaction, installmentPeriod });
-      } else {
-        seenInstallmentPeriods.add(key);
-      }
-    }
-    if (correctedTransactions.length) await db.transactions.bulkPut(correctedTransactions);
-    const normalizedTransactions = correctedTransactions.length ? await db.transactions.toArray() : transactions;
-    for (const installment of await db.installments.toArray()) {
-      const paidPeriods = new Set(normalizedTransactions.filter(transaction => transaction.installmentId === installment.id && transaction.installmentPeriod).map(transaction => transaction.installmentPeriod));
-      const closedAt = paidPeriods.size >= installment.totalMonths ? installment.closedAt ?? new Date().toISOString() : undefined;
-      if (closedAt !== installment.closedAt) await db.installments.update(installment.id, { closedAt, updatedAt: new Date().toISOString() });
-    }
+    const installments = await db.installments.toArray();
+    const reconciled = reconcileInstallmentPayments(transactions, installments);
+    const changedTransactions = reconciled.transactions.filter((transaction, index) => installmentLinkChanged(transactions[index], transaction));
+    if (changedTransactions.length) await db.transactions.bulkPut(changedTransactions);
+    const changedInstallments = reconciled.installments.filter((installment, index) => installment.closedAt !== installments[index].closedAt);
+    if (changedInstallments.length) await db.installments.bulkPut(changedInstallments);
     return existing;
   });
 }
@@ -246,21 +262,7 @@ export async function restoreBackup(payload: BackupPayloadV1 | BackupPayloadV2 |
     await Promise.all(db.tables.map(table => table.clear()));
     await db.settings.put(payload.settings);
     await db.categories.bulkAdd(payload.categories);
-    const seenInstallmentPeriods = new Set<string>();
-    const restoredTransactions = payload.transactions.map(transaction => {
-      const restored = { ...transaction };
-      if (restored.installmentId) {
-        restored.installmentPeriod ??= restored.date.slice(0, 7);
-        const key = `${restored.installmentId}:${restored.installmentPeriod}`;
-        if (seenInstallmentPeriods.has(key)) {
-          restored.installmentId = undefined;
-          restored.installmentPeriod = undefined;
-        } else {
-          seenInstallmentPeriods.add(key);
-        }
-      }
-      return restored;
-    });
+    const restoredTransactions = payload.transactions.map(transaction => ({ ...transaction }));
     await db.transactions.bulkAdd(restoredTransactions);
     await db.budgets.bulkAdd(payload.budgets ?? []);
     await db.recurringRules.bulkAdd(payload.recurringRules ?? []);
@@ -272,12 +274,12 @@ export async function restoreBackup(payload: BackupPayloadV1 | BackupPayloadV2 |
 
     if (payload.schemaVersion >= 3) {
       await db.installments.bulkAdd((payload as BackupPayloadV3).installments);
-      const installments = await db.installments.toArray();
-      for (const installment of installments) {
-        const paidPeriods = new Set(restoredTransactions.filter(transaction => transaction.installmentId === installment.id && transaction.installmentPeriod).map(transaction => transaction.installmentPeriod));
-        const closedAt = paidPeriods.size >= installment.totalMonths ? installment.closedAt ?? new Date().toISOString() : undefined;
-        if (closedAt !== installment.closedAt) await db.installments.update(installment.id, { closedAt, updatedAt: new Date().toISOString() });
-      }
+      const reconciled = reconcileInstallmentPayments(restoredTransactions, await db.installments.toArray());
+      const changedTransactions = reconciled.transactions.filter((transaction, index) => installmentLinkChanged(restoredTransactions[index], transaction));
+      if (changedTransactions.length) await db.transactions.bulkPut(changedTransactions);
+      const originalInstallments = new Map((payload as BackupPayloadV3).installments.map(installment => [installment.id, installment]));
+      const changedInstallments = reconciled.installments.filter(installment => installment.closedAt !== originalInstallments.get(installment.id)?.closedAt);
+      if (changedInstallments.length) await db.installments.bulkPut(changedInstallments);
     }
 
     if (payload.schemaVersion >= 2) {

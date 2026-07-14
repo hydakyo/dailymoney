@@ -1,7 +1,7 @@
 import { Plus, Trash2, Landmark, HandCoins, Goal, CalendarDays, Smartphone, Copy } from "lucide-react";
 import type { Category, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction } from "../../domain";
 import { formatVnd, today } from "../../domain";
-import { debtOutstanding, goalBalance, oldestUnpaidInstallmentPeriod } from "../../finance";
+import { debtOutstanding, goalBalance, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "../../finance";
 import type { BudgetProgressItem } from "../../finance";
 import { Card } from "../ui/Card";
 import type { AppData } from "../../store";
@@ -156,7 +156,7 @@ export function PlansView({
         <div className="stack">
           {installments.length ? (
             installments.map(item => {
-              const paidMonths = transactions.filter(transaction => transaction.installmentId === item.id).length;
+              const paidMonths = paidInstallmentPeriods(item, transactions).size;
               const now = new Date();
               const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
               const paymentPeriod = oldestUnpaidInstallmentPeriod(item, transactions);
@@ -178,7 +178,7 @@ export function PlansView({
                   </div>
                   <div className="plan-actions" style={{ marginTop: 8 }}>
                     <p>Đã xác nhận: {paidMonths}/{item.totalMonths} kỳ · Hạn ngày {item.dueDate}</p>
-                    {paidMonths < item.totalMonths && paymentPeriod && paymentPeriod <= currentPeriod && <button className="soft" onClick={() => void onPayInstallment(item).catch(() => window.alert("Kỳ trả góp này vừa được xác nhận. Hãy kiểm tra lại danh sách."))}>Xác nhận {paymentPeriod === currentPeriod ? "trả kỳ này" : `trả bù ${paymentPeriod}`}</button>}
+                    {paidMonths < item.totalMonths && paymentPeriod && paymentPeriod <= currentPeriod && <button className="soft" onClick={() => void onPayInstallment(item).catch(error => window.alert(error instanceof Error && error.message === "duplicate-installment-payment" ? "Kỳ trả góp này đã được xác nhận." : "Không thể ghi khoản trả góp. Vui lòng thử lại."))}>Xác nhận {paymentPeriod === currentPeriod ? "trả kỳ này" : `trả bù ${paymentPeriod}`}</button>}
                     <button
                       className="icon-button subtle"
                       aria-label="Xóa khoản trả góp"
