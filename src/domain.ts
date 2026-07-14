@@ -206,6 +206,11 @@ export interface BackupPayloadV3 {
   installments: Installment[];
 }
 
+const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const MonthSchema = z.string().regex(/^\d{4}-\d{2}$/);
+const MoneySchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const SignedMoneySchema = z.number().int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
+
 export const TransactionKindSchema = z.enum(["income", "expense", "transfer"]);
 export const DebtKindSchema = z.enum(["receivable", "payable"]);
 export const FrequencySchema = z.enum(["daily", "weekly", "monthly", "yearly"]);
@@ -213,150 +218,150 @@ export const FrequencySchema = z.enum(["daily", "weekly", "monthly", "yearly"]);
 export const AppSettingsSchema = z.object({
   id: z.literal("settings"),
   onboardingComplete: z.boolean(),
-  openingBalance: z.number().catch(0),
+  openingBalance: SignedMoneySchema.catch(0),
   currency: z.literal("VND"),
-  pinHash: z.string().optional(),
-  pinSalt: z.string().optional(),
+  pinHash: z.string().max(256).optional(),
+  pinSalt: z.string().max(256).optional(),
   lockEnabled: z.boolean().catch(false),
   reminderEnabled: z.boolean().optional(),
-  reminderTime: z.string().optional(),
+  reminderTime: z.string().max(10).optional(),
   lastBackupAt: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 export const WalletSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  icon: z.string(),
-  color: z.string(),
-  initialBalance: z.number(),
+  id: z.string().min(1).max(100),
+  name: z.string().trim().min(1).max(100),
+  icon: z.string().max(50),
+  color: z.string().max(20),
+  initialBalance: SignedMoneySchema,
   archived: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 export const CategorySchema = z.object({
-  id: z.string(),
+  id: z.string().min(1).max(100),
   kind: TransactionKindSchema,
-  name: z.string(),
-  icon: z.string(),
-  color: z.string(),
+  name: z.string().trim().min(1).max(100),
+  icon: z.string().max(50),
+  color: z.string().max(20),
   archived: z.boolean(),
   builtIn: z.boolean(),
   createdAt: z.string(),
 });
 
 export const TransactionSchema = z.object({
-  id: z.string(),
+  id: z.string().min(1).max(100),
   kind: TransactionKindSchema,
-  amount: z.number().int().nonnegative(),
-  categoryId: z.string(),
-  walletId: z.string(),
-  toWalletId: z.string().optional(),
-  date: z.string(),
-  note: z.string().optional(),
-  recurringRuleId: z.string().optional(),
-  debtPaymentId: z.string().optional(),
+  amount: MoneySchema,
+  categoryId: z.string().max(100),
+  walletId: z.string().max(100),
+  toWalletId: z.string().max(100).optional(),
+  date: DateSchema,
+  note: z.string().trim().max(2000).optional(),
+  recurringRuleId: z.string().max(100).optional(),
+  debtPaymentId: z.string().max(100).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 export const BudgetSchema = z.object({
-  id: z.string(),
-  categoryId: z.string(),
-  month: z.string(),
-  limit: z.number(),
+  id: z.string().min(1).max(100),
+  categoryId: z.string().max(100),
+  month: MonthSchema,
+  limit: MoneySchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 export const RecurringRuleSchema = z.object({
-  id: z.string(),
+  id: z.string().min(1).max(100),
   kind: TransactionKindSchema,
-  amount: z.number(),
-  categoryId: z.string(),
-  walletId: z.string().optional(),
-  toWalletId: z.string().optional(),
-  note: z.string().optional(),
+  amount: MoneySchema,
+  categoryId: z.string().max(100),
+  walletId: z.string().max(100).optional(),
+  toWalletId: z.string().max(100).optional(),
+  note: z.string().trim().max(2000).optional(),
   frequency: FrequencySchema,
-  interval: z.number(),
-  dayOfMonth: z.number().optional(),
-  weekday: z.number().optional(),
-  startDate: z.string(),
-  nextDueDate: z.string(),
-  endDate: z.string().optional(),
+  interval: z.number().int().min(1).max(365),
+  dayOfMonth: z.number().int().min(1).max(31).optional(),
+  weekday: z.number().int().min(0).max(6).optional(),
+  startDate: DateSchema,
+  nextDueDate: DateSchema,
+  endDate: DateSchema.optional(),
   active: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 export const RecurringOccurrenceSchema = z.object({
-  id: z.string(),
-  ruleId: z.string(),
-  dueDate: z.string(),
+  id: z.string().min(1).max(100),
+  ruleId: z.string().max(100),
+  dueDate: DateSchema,
   status: z.enum(["pending", "confirmed", "skipped"]),
-  transactionId: z.string().optional(),
+  transactionId: z.string().max(100).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 export const DebtSchema = z.object({
-  id: z.string(),
+  id: z.string().min(1).max(100),
   kind: DebtKindSchema,
-  person: z.string(),
-  principal: z.number().nonnegative(),
-  openedDate: z.string(),
-  dueDate: z.string().optional(),
-  note: z.string().optional(),
+  person: z.string().trim().min(1).max(100),
+  principal: MoneySchema,
+  openedDate: DateSchema,
+  dueDate: DateSchema.optional(),
+  note: z.string().trim().max(2000).optional(),
   closedAt: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 export const DebtPaymentSchema = z.object({
-  id: z.string(),
-  debtId: z.string(),
-  amount: z.number().nonnegative(),
-  date: z.string(),
-  note: z.string().optional(),
-  transactionId: z.string(),
+  id: z.string().min(1).max(100),
+  debtId: z.string().max(100),
+  amount: MoneySchema,
+  date: DateSchema,
+  note: z.string().trim().max(2000).optional(),
+  transactionId: z.string().max(100),
   createdAt: z.string(),
 });
 
 export const SavingsGoalSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  target: z.number().nonnegative(),
-  targetDate: z.string().optional(),
-  color: z.string(),
-  icon: z.string(),
+  id: z.string().min(1).max(100),
+  name: z.string().trim().min(1).max(100),
+  target: MoneySchema,
+  targetDate: DateSchema.optional(),
+  color: z.string().max(20),
+  icon: z.string().max(50),
   closedAt: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 export const GoalEntrySchema = z.object({
-  id: z.string(),
-  goalId: z.string(),
-  amount: z.number(),
+  id: z.string().min(1).max(100),
+  goalId: z.string().max(100),
+  amount: MoneySchema,
   direction: z.enum(["contribution", "withdrawal"]),
-  date: z.string(),
-  note: z.string().optional(),
+  date: DateSchema,
+  note: z.string().trim().max(2000).optional(),
   createdAt: z.string(),
 });
 
 export const InstallmentSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  totalAmount: z.number().nonnegative(),
-  monthlyAmount: z.number().nonnegative(),
-  totalMonths: z.number().int().positive(),
-  startDate: z.string(),
+  id: z.string().min(1).max(100),
+  name: z.string().trim().min(1).max(100),
+  totalAmount: MoneySchema,
+  monthlyAmount: MoneySchema,
+  totalMonths: z.number().int().positive().max(1200),
+  startDate: DateSchema,
   dueDate: z.number().int().min(1).max(31),
   closedAt: z.string().optional(),
-  categoryId: z.string(),
-  walletId: z.string(),
+  categoryId: z.string().max(100),
+  walletId: z.string().max(100),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

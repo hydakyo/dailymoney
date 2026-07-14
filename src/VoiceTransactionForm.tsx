@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Mic, Square, X, ClipboardPaste } from "lucide-react";
 import type { Category, RecurringRule, Transaction, Wallet } from "./domain";
 import { today } from "./domain";
@@ -36,11 +36,12 @@ export function VoiceTransactionForm({
   onSubmit: (value: TransactionInput) => Promise<void>;
   onClose: () => void;
 }) {
+  const activeWallets = useMemo(() => wallets.filter(wallet => !wallet.archived), [wallets]);
   const [kind, setKind] = useState<Transaction["kind"]>(transaction?.kind ?? "expense");
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : "");
   const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? "");
-  const [walletId, setWalletId] = useState(transaction?.walletId ?? wallets[0]?.id ?? "");
-  const [toWalletId, setToWalletId] = useState(transaction?.toWalletId ?? wallets.find(w => w.id !== walletId)?.id ?? "");
+  const [walletId, setWalletId] = useState(transaction?.walletId ?? activeWallets[0]?.id ?? "");
+  const [toWalletId, setToWalletId] = useState(transaction?.toWalletId ?? activeWallets.find(wallet => wallet.id !== walletId)?.id ?? "");
   const [date, setDate] = useState(transaction?.date ?? today());
   const [note, setNote] = useState(transaction?.note ?? "");
   const [recurring, setRecurring] = useState(false);
@@ -56,13 +57,19 @@ export function VoiceTransactionForm({
   const transcriptRef = useRef("");
   const hasErrorRef = useRef(false);
   
-  const relevant = categories.filter(category => category.kind === kind && !category.archived);
+  const relevant = useMemo(() => categories.filter(category => category.kind === kind && !category.archived), [categories, kind]);
 
   useEffect(() => {
     if (kind !== "transfer" && !relevant.some(category => category.id === categoryId)) {
       setCategoryId(relevant[0]?.id ?? "");
     }
   }, [categoryId, relevant, kind]);
+
+  useEffect(() => {
+    if (!activeWallets.some(wallet => wallet.id === toWalletId) || toWalletId === walletId) {
+      setToWalletId(activeWallets.find(wallet => wallet.id !== walletId)?.id ?? "");
+    }
+  }, [activeWallets, toWalletId, walletId]);
 
   useEffect(() => () => recognitionRef.current?.abort(), []);
 
@@ -183,7 +190,7 @@ export function VoiceTransactionForm({
         <div className="kind-switch">
           <button className={kind === "expense" ? "selected expense-bg" : ""} onClick={() => setKind("expense")}>Chi tiền</button>
           <button className={kind === "income" ? "selected income-bg" : ""} onClick={() => setKind("income")}>Thu tiền</button>
-          <button className={kind === "transfer" ? "selected primary-bg" : ""} onClick={() => setKind("transfer")}>Chuyển ví</button>
+          {activeWallets.length > 1 && <button className={kind === "transfer" ? "selected primary-bg" : ""} onClick={() => setKind("transfer")}>Chuyển ví</button>}
         </div>
 
         <label className="field">
@@ -196,13 +203,13 @@ export function VoiceTransactionForm({
             <label className="field" style={{ marginBottom: 0 }}>
               <span>Từ Ví</span>
               <select value={walletId} onChange={e => setWalletId(e.target.value)}>
-                {wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                {activeWallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
             </label>
             <label className="field" style={{ marginBottom: 0 }}>
               <span>Đến Ví</span>
               <select value={toWalletId} onChange={e => setToWalletId(e.target.value)}>
-                {wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                {activeWallets.filter(wallet => wallet.id !== walletId).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
             </label>
           </div>
@@ -211,7 +218,7 @@ export function VoiceTransactionForm({
             <label className="field">
               <span>Ví giao dịch</span>
               <select value={walletId} onChange={e => setWalletId(e.target.value)}>
-                {wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                {activeWallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
             </label>
             <label className="field">

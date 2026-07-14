@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { LockKeyhole } from "lucide-react";
 import type { AppSettings } from "../../domain";
-import { hashPin } from "../../utils";
+import { hashPin, hashLegacyPin, timingSafeEqual, toBase64 } from "../../utils";
+import { db } from "../../db";
 
 export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlocked: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
-  const [attempts, setAttempts] = useState(0);
-  const [lockoutUntil, setLockoutUntil] = useState<number>(0);
+  const [attempts, setAttempts] = useState(() => Number(localStorage.getItem("pin_failedAttempts") || "0"));
+  const [lockoutUntil, setLockoutUntil] = useState<number>(() => Number(localStorage.getItem("pin_lockoutUntil") || "0"));
   const [timeLeft, setTimeLeft] = useState(0);
 
   useEffect(() => {
@@ -18,6 +19,8 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
           setLockoutUntil(0);
           setAttempts(0);
           setError("");
+          localStorage.removeItem("pin_failedAttempts");
+          localStorage.removeItem("pin_lockoutUntil");
           clearInterval(interval);
         } else {
           setTimeLeft(remaining);
@@ -28,6 +31,26 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
   }, [lockoutUntil]);
 
   const lockedOut = lockoutUntil > Date.now();
+
+  const registerFailedAttempt = () => {
+    const newAttempts = attempts + 1;
+    setAttempts(newAttempts);
+    localStorage.setItem("pin_failedAttempts", newAttempts.toString());
+    setPin("");
+    
+    if (newAttempts >= 5) {
+      let penaltySeconds = 30; // 30s
+      if (newAttempts >= 20) penaltySeconds = 3600; // 1 hour max
+      else if (newAttempts >= 15) penaltySeconds = 600; // 10 minutes
+      else if (newAttempts >= 10) penaltySeconds = 120; // 2 minutes
+      
+      const newLockoutUntil = Date.now() + penaltySeconds * 1000;
+      setLockoutUntil(newLockoutUntil);
+      localStorage.setItem("pin_lockoutUntil", newLockoutUntil.toString());
+    } else {
+      setError(`Mã PIN chưa đúng (còn ${5 - (newAttempts % 5)} lần).`);
+    }
+  };
 
   return (
     <main className="unlock">
@@ -64,24 +87,30 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
           
           try {
             if (settings.pinSalt.length === 36) {
-              // Old SHA-256 PIN detected, gracefully bypass to force reset
-              setError("Mã PIN cũ đã bị vô hiệu hóa vì bảo mật. Hãy vào Cài đặt để thiết lập lại.");
-              setTimeout(onUnlocked, 3000);
+              const legacyHash = await hashLegacyPin(pin, settings.pinSalt);
+              if (!timingSafeEqual(legacyHash, settings.pinHash)) {
+                registerFailedAttempt();
+                return;
+              }
+              // Transparent migration to PBKDF2
+              const newSalt = toBase64(crypto.getRandomValues(new Uint8Array(16)));
+              const newHash = await hashPin(pin, newSalt);
+              await db.settings.update("settings", {
+                pinHash: newHash,
+                pinSalt: newSalt,
+                updatedAt: new Date().toISOString()
+              });
+              onUnlocked();
               return;
             }
 
             const hashed = await hashPin(pin, settings.pinSalt);
-            if (hashed === settings.pinHash) {
+            if (timingSafeEqual(hashed, settings.pinHash)) {
+              localStorage.removeItem("pin_failedAttempts");
+              localStorage.removeItem("pin_lockoutUntil");
               onUnlocked();
             } else {
-              const newAttempts = attempts + 1;
-              setAttempts(newAttempts);
-              setPin("");
-              if (newAttempts >= 5) {
-                setLockoutUntil(Date.now() + 30000);
-              } else {
-                setError(`Mã PIN chưa đúng (còn ${5 - newAttempts} lần).`);
-              }
+              registerFailedAttempt();
             }
           } catch (e: any) {
             setError("Lỗi xử lý PIN.");

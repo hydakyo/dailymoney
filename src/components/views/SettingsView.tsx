@@ -15,6 +15,7 @@ export function SettingsView({
   categories,
   transactions,
   onOpeningBalance,
+  onWallets,
   onCategories,
   onReminder,
   onBackup,
@@ -28,6 +29,7 @@ export function SettingsView({
   categories: Category[];
   transactions: Transaction[];
   onOpeningBalance: () => void;
+  onWallets: () => void;
   onCategories: () => void;
   onReminder: () => void;
   onBackup: () => void;
@@ -110,6 +112,14 @@ export function SettingsView({
         <h2>Thông tin</h2>
       </section>
       <Card>
+        <button className="settings-action" onClick={onWallets}>
+          <WalletCards />
+          <span>
+            <strong>Ví & tài khoản</strong>
+            <small>{wallets.filter(item => !item.archived).length} ví đang dùng</small>
+          </span>
+          <ChevronRight />
+        </button>
         <button className="settings-action" onClick={onOpeningBalance}>
           <WalletCards />
           <span>

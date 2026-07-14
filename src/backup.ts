@@ -1,16 +1,29 @@
 import type { BackupPayload } from "./domain";
 import { BackupSchema } from "./domain";
 
-export interface EncryptedBackup {
-  format: "daily-money-encrypted";
-  version: 1;
-  kdf: { name: "PBKDF2"; hash: "SHA-256"; iterations: number; salt: string };
-  cipher: { name: "AES-GCM"; iv: string; ciphertext: string };
-}
+import { z } from "zod";
+
+const EncryptedBackupSchema = z.object({
+  format: z.literal("daily-money-encrypted"),
+  version: z.literal(1),
+  kdf: z.object({
+    name: z.literal("PBKDF2"),
+    hash: z.literal("SHA-256"),
+    iterations: z.number().int().min(100_000).max(2_000_000),
+    salt: z.string().max(128)
+  }),
+  cipher: z.object({
+    name: z.literal("AES-GCM"),
+    iv: z.string().max(64),
+    ciphertext: z.string().max(50_000_000)
+  })
+});
+
+export type EncryptedBackup = z.infer<typeof EncryptedBackupSchema>;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const ITERATIONS = 310_000;
+const ITERATIONS = 600_000;
 
 function toBase64(data: Uint8Array) {
   let value = "";
@@ -44,11 +57,14 @@ export async function encryptBackup(payload: BackupPayload, password: string): P
   };
 }
 
-export async function decryptBackup(value: EncryptedBackup, password: string): Promise<BackupPayload> {
-  if (value.format !== "daily-money-encrypted" || value.version !== 1) throw new Error("File backup không đúng định dạng Daily Money.");
+export async function decryptBackup(value: unknown, password: string): Promise<BackupPayload> {
+  const env = EncryptedBackupSchema.safeParse(value);
+  if (!env.success) throw new Error("File backup không đúng định dạng Daily Money, hoặc cấu trúc bị từ chối.");
+  const validEnv = env.data;
+
   try {
-    const key = await keyFromPassword(password, fromBase64(value.kdf.salt), value.kdf.iterations);
-    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: asBufferSource(fromBase64(value.cipher.iv)) }, key, asBufferSource(fromBase64(value.cipher.ciphertext)));
+    const key = await keyFromPassword(password, fromBase64(validEnv.kdf.salt), validEnv.kdf.iterations);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: asBufferSource(fromBase64(validEnv.cipher.iv)) }, key, asBufferSource(fromBase64(validEnv.cipher.ciphertext)));
     const payload = JSON.parse(decoder.decode(plain));
     const parsed = BackupSchema.safeParse(payload);
     if (!parsed.success) {

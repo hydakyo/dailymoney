@@ -49,9 +49,19 @@ async function sendReminder(env: Env, row: ReminderRow) {
 
 const ALLOWED_ORIGINS = ["https://dm.kelvin.io.vn", "http://localhost:5173", "http://localhost:4173"];
 
+// Validate subscription more strictly
+function validSubscriptionStrict(sub: any) {
+  if (!sub || typeof sub !== "object") return false;
+  if (typeof sub.endpoint !== "string" || !sub.endpoint.startsWith("https://") || sub.endpoint.length > 2048) return false;
+  if (!sub.keys || typeof sub.keys !== "object") return false;
+  if (typeof sub.keys.p256dh !== "string" || sub.keys.p256dh.length > 256) return false;
+  if (typeof sub.keys.auth !== "string" || sub.keys.auth.length > 128) return false;
+  return true;
+}
+
 async function handleApi(request: Request, env: Env, path: string) {
   const origin = request.headers.get("Origin");
-  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+  if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
     return json({ error: "Origin không được phép." }, 403);
   }
 
@@ -59,7 +69,7 @@ async function handleApi(request: Request, env: Env, path: string) {
   if (request.method === "OPTIONS") {
     return new Response(null, {
       headers: {
-        "Access-Control-Allow-Origin": origin || "*",
+        "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
       },
@@ -68,7 +78,7 @@ async function handleApi(request: Request, env: Env, path: string) {
 
   if (path === "/api/reminders/vapid-key" && request.method === "GET") {
     return new Response(JSON.stringify({ publicKey: env.VAPID_PUBLIC_KEY }), {
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin || "*" },
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin },
     });
   }
 
@@ -82,9 +92,9 @@ async function handleApi(request: Request, env: Env, path: string) {
   if (path === "/api/reminders/subscribe" && request.method === "POST") {
     try {
       const body = await readJson<{ subscription?: unknown; time?: unknown }>();
-      if (!body || !validSubscription(body.subscription) || !validTime(body.time)) return invalid("Subscription hoặc giờ nhắc không hợp lệ.");
-      await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at").bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time).run();
-      return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin || "*" } });
+      if (!body || !validSubscriptionStrict(body.subscription) || !validTime(body.time)) return invalid("Subscription hoặc giờ nhắc không hợp lệ.");
+      await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at").bind((body.subscription as any).endpoint, JSON.stringify(body.subscription), body.time).run();
+      return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin } });
     } catch {
       return invalid("Request không hợp lệ.");
     }
@@ -93,9 +103,9 @@ async function handleApi(request: Request, env: Env, path: string) {
   if (path === "/api/reminders/unsubscribe" && request.method === "POST") {
     try {
       const body = await readJson<{ endpoint?: unknown }>();
-      if (!body || typeof body.endpoint !== "string") return invalid("Endpoint không hợp lệ.");
+      if (!body || typeof body.endpoint !== "string" || body.endpoint.length > 2048) return invalid("Endpoint không hợp lệ.");
       await env.REMINDERS.prepare("DELETE FROM subscriptions WHERE endpoint = ?").bind(body.endpoint).run();
-      return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin || "*" } });
+      return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin } });
     } catch {
       return invalid("Request không hợp lệ.");
     }
