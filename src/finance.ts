@@ -19,6 +19,22 @@ export type MonthForecast = {
   daysRemaining: number;
 };
 
+export type CashFlowEvent = {
+  date: string;
+  amount: number;
+  label: string;
+  kind: "income" | "recurring" | "installment" | "debt" | "flexible";
+};
+
+export type CashFlowForecast = {
+  endingBalance: number;
+  lowestBalance: number;
+  lowestBalanceDate: string | null;
+  shortfall: number;
+  dailyFlexibleAllowance: number;
+  events: CashFlowEvent[];
+};
+
 export function installmentPeriods(installment: Installment) {
   const [year, month] = installment.startDate.slice(0, 7).split("-").map(Number);
   return Array.from({ length: installment.totalMonths }, (_, offset) => {
@@ -261,6 +277,103 @@ export function monthForecast({
     flexibleForecastSource,
     remainingBudget,
     daysRemaining
+  };
+}
+
+export function cashFlowForecast(input: {
+  balance: number;
+  month: string;
+  transactions: Transaction[];
+  rules: RecurringRule[];
+  occurrences: RecurringOccurrence[];
+  installments: Installment[];
+  budgets: BudgetProgressItem[];
+  debts?: Debt[];
+  debtPayments?: DebtPayment[];
+  asOf?: Date;
+}): CashFlowForecast | null {
+  const asOf = input.asOf ?? new Date();
+  const forecast = monthForecast({ ...input, asOf });
+  if (!forecast) return null;
+
+  const currentMonth = `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, "0")}`;
+  const asOfDate = `${currentMonth}-${String(asOf.getDate()).padStart(2, "0")}`;
+  const monthEnd = `${currentMonth}-${String(new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate()).padStart(2, "0")}`;
+  const events: CashFlowEvent[] = [];
+  const addEvent = (event: CashFlowEvent) => events.push({ ...event, date: event.date < asOfDate ? asOfDate : event.date });
+  const ruleById = new Map(input.rules.map(rule => [rule.id, rule]));
+  const occurrenceByKey = new Map(input.occurrences.map(occurrence => [`${occurrence.ruleId}:${occurrence.dueDate}`, occurrence]));
+  const countedOccurrences = new Set<string>();
+  const addRecurring = (rule: RecurringRule, dueDate: string) => {
+    const key = `${rule.id}:${dueDate}`;
+    if (countedOccurrences.has(key) || !rule.active || rule.kind === "transfer") return;
+    const occurrence = occurrenceByKey.get(key);
+    if (occurrence && occurrence.status !== "pending") return;
+    countedOccurrences.add(key);
+    addEvent({ date: dueDate, amount: rule.kind === "income" ? rule.amount : -rule.amount, label: rule.note || "Giao dịch lặp", kind: rule.kind === "income" ? "income" : "recurring" });
+  };
+  for (const occurrence of input.occurrences) {
+    if (occurrence.status !== "pending" || !occurrence.dueDate.startsWith(currentMonth)) continue;
+    const rule = ruleById.get(occurrence.ruleId);
+    if (rule) addRecurring(rule, occurrence.dueDate);
+  }
+  for (const rule of input.rules) {
+    let dueDate = rule.nextDueDate;
+    while (dueDate <= monthEnd && (!rule.endDate || dueDate <= rule.endDate)) {
+      if (dueDate.startsWith(currentMonth)) addRecurring(rule, dueDate);
+      dueDate = advanceDueDate(rule, dueDate);
+    }
+  }
+
+  for (const installment of input.installments) {
+    if (installment.closedAt) continue;
+    const paidPeriods = paidInstallmentPeriods(installment, input.transactions);
+    for (const period of installmentPeriods(installment)) {
+      if (period > currentMonth || paidPeriods.has(period)) continue;
+      const day = String(Math.min(installment.dueDate, Number(monthEnd.slice(-2)))).padStart(2, "0");
+      addEvent({ date: period < currentMonth ? asOfDate : `${period}-${day}`, amount: -installment.monthlyAmount, label: `Trả góp: ${installment.name}`, kind: "installment" });
+    }
+  }
+
+  for (const debt of input.debts ?? []) {
+    if (debt.closedAt || !debt.dueDate || debt.dueDate > monthEnd) continue;
+    const outstanding = debtOutstanding(debt, input.debtPayments ?? []);
+    if (!outstanding) continue;
+    addEvent({
+      date: debt.dueDate,
+      amount: debt.kind === "receivable" ? outstanding : -outstanding,
+      label: debt.kind === "receivable" ? `Thu nợ: ${debt.person}` : `Trả nợ: ${debt.person}`,
+      kind: "debt"
+    });
+  }
+
+  if (forecast.projectedFlexibleExpense > 0 && forecast.daysRemaining > 0) {
+    const dailyAmount = forecast.projectedFlexibleExpense / forecast.daysRemaining;
+    for (let date = new Date(Date.UTC(asOf.getFullYear(), asOf.getMonth(), asOf.getDate() + 1)); date.toISOString().slice(0, 10) <= monthEnd; date.setUTCDate(date.getUTCDate() + 1)) {
+      addEvent({ date: date.toISOString().slice(0, 10), amount: -dailyAmount, label: "Chi linh hoạt dự kiến", kind: "flexible" });
+    }
+  }
+
+  events.sort((a, b) => a.date.localeCompare(b.date) || a.amount - b.amount || a.label.localeCompare(b.label));
+  let runningBalance = input.balance;
+  let lowestBalance = runningBalance;
+  let lowestBalanceDate: string | null = null;
+  for (const event of events) {
+    runningBalance += event.amount;
+    if (runningBalance < lowestBalance) {
+      lowestBalance = runningBalance;
+      lowestBalanceDate = event.date;
+    }
+  }
+
+  const shortfall = Math.max(0, -lowestBalance);
+  return {
+    endingBalance: runningBalance,
+    lowestBalance,
+    lowestBalanceDate,
+    shortfall,
+    dailyFlexibleAllowance: forecast.daysRemaining ? Math.max(0, forecast.projectedFlexibleExpense - Math.max(shortfall, Math.max(0, -forecast.projectedBalance))) / forecast.daysRemaining : 0,
+    events
   };
 }
 

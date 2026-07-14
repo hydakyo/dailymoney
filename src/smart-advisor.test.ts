@@ -44,4 +44,23 @@ describe("adaptive smart plan", () => {
     expect(plan.needsTotal).toBe(food?.suggestedLimit);
     expect(plan.wantsTotal).toBe(shopping?.suggestedLimit);
   });
+
+  it("creates an urgent recovery plan when cash is short before a later income arrives", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-14T12:00:00.000Z"));
+    const stressed: AppData = {
+      ...data,
+      wallets: [{ ...data.wallets[0], initialBalance: 6_000_000 }],
+      debts: [{ ...data.debts[0], principal: 6_000_000, dueDate: "2026-07-15" }],
+      rules: [
+        ...data.rules,
+        { ...data.rules[0], id: "salary", kind: "income", amount: 8_000_000, nextDueDate: "2026-07-30" }
+      ]
+    };
+
+    const plan = generateSmartPlan(stressed, "2026-07");
+    expect(plan.shortfall).toBeGreaterThan(0);
+    expect(plan.priorityActions[0]).toMatchObject({ level: "danger" });
+    expect(plan.lowestBalanceDate).toBeTruthy();
+  });
 });

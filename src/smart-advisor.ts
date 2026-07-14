@@ -1,6 +1,6 @@
 import type { Category, Transaction } from "./domain";
 import type { AppData } from "./store";
-import { budgetProgress, monthForecast, totalBalance } from "./finance";
+import { budgetProgress, cashFlowForecast, monthForecast, totalBalance } from "./finance";
 import { addMonths } from "./utils";
 
 export interface SuggestedBudget {
@@ -22,6 +22,12 @@ export interface SmartPlan {
   savesTotal: number;
   summary: string;
   isCurrentMonth: boolean;
+  lowestBalance: number;
+  lowestBalanceDate: string | null;
+  shortfall: number;
+  dailyFlexibleCap: number;
+  priorityActions: Array<{ level: "danger" | "warning" | "info"; title: string; detail: string }>;
+  upcomingObligations: Array<{ date: string; label: string; amount: number }>;
 }
 
 const NEED_CATEGORY_NAMES = new Set(["Ăn uống", "Di chuyển", "Nhà ở", "Hóa đơn", "Sức khỏe", "Giáo dục", "Gia đình"]);
@@ -42,6 +48,17 @@ export function generateSmartPlan(data: AppData, currentMonth: string): SmartPla
   const balance = totalBalance(data.wallets, data.transactions);
   const budgetItems = budgetProgress(data.budgets, data.transactions, data.categories, currentMonth);
   const forecast = monthForecast({
+    balance,
+    month: currentMonth,
+    transactions: data.transactions,
+    rules: data.rules,
+    occurrences: data.occurrences,
+    installments: data.installments,
+    budgets: budgetItems,
+    debts: data.debts,
+    debtPayments: data.payments
+  });
+  const cashFlow = cashFlowForecast({
     balance,
     month: currentMonth,
     transactions: data.transactions,
@@ -85,7 +102,8 @@ export function generateSmartPlan(data: AppData, currentMonth: string): SmartPla
   const forecastIncome = forecast ? forecast.expectedIncome + forecast.expectedDebtReceivables : 0;
   const mandatoryExpenses = forecast ? forecast.expectedRecurringExpense + forecast.expectedInstallments + forecast.expectedDebtRepayments : 0;
   const forecastFlexible = forecast?.projectedFlexibleExpense ?? baselineRemaining;
-  const flexibleAllowance = Math.max(0, forecastFlexible + Math.min(0, projectedBalance));
+  const shortfall = cashFlow?.shortfall ?? Math.max(0, -projectedBalance);
+  const flexibleAllowance = Math.max(0, forecastFlexible - Math.max(0, -projectedBalance, shortfall));
   const historicalDailySpend = historyTransactions.reduce((sum, transaction) => sum + transaction.amount, 0) / Math.max(1, historyMonths.length * 30);
   const recommendedReserve = Math.min(Math.max(0, projectedBalance), historicalDailySpend * 7);
   const savesTotal = Math.max(0, projectedBalance - recommendedReserve);
@@ -96,17 +114,51 @@ export function generateSmartPlan(data: AppData, currentMonth: string): SmartPla
     const baseline = baselineRemainingByCategory.get(category.id) ?? 0;
     if (baseline <= 0) continue;
     const spent = currentSpentByCategory.get(category.id) ?? 0;
+    const suggestedLimit = roundUpToThousand(spent + flexibleAllowance * (baseline / weightTotal));
+    if (suggestedLimit <= spent) continue;
     suggestedBudgets.push({
       categoryId: category.id,
       categoryName: category.name,
-      suggestedLimit: roundUpToThousand(spent + flexibleAllowance * (baseline / weightTotal)),
+      suggestedLimit,
       kind: categoryKind(category)
     });
   }
 
   const needsTotal = suggestedBudgets.filter(item => item.kind === "need").reduce((sum, item) => sum + item.suggestedLimit, 0);
   const wantsTotal = suggestedBudgets.filter(item => item.kind === "want").reduce((sum, item) => sum + item.suggestedLimit, 0);
-  const summary = projectedBalance < 0
+  const dailyFlexibleCap = cashFlow?.dailyFlexibleAllowance ?? 0;
+  const priorityActions: SmartPlan["priorityActions"] = [];
+  if (shortfall > 0) {
+    priorityActions.push({
+      level: "danger",
+      title: `Thiếu ${shortfall.toLocaleString("vi-VN")}đ trước ${cashFlow?.lowestBalanceDate ?? "cuối tháng"}`,
+      detail: `Giảm hoặc dời ít nhất ${Math.ceil(shortfall / Math.max(1, forecast?.daysRemaining ?? 1)).toLocaleString("vi-VN")}đ mỗi ngày cho đến khi có dòng tiền vào.`
+    });
+    priorityActions.push({
+      level: "warning",
+      title: "Bảo vệ các khoản thiết yếu và đến hạn",
+      detail: "Tạm dừng chi tùy chọn trước. Nếu vẫn không đủ, hãy chủ động liên hệ bên nhận thanh toán để trao đổi phương án phù hợp trước hạn."
+    });
+  } else if (cashFlow && cashFlow.lowestBalance < recommendedReserve) {
+    priorityActions.push({
+      level: "warning",
+      title: "Dòng tiền an toàn nhưng quỹ đệm mỏng",
+      detail: "Giữ lại khoản dự phòng và hạn chế tăng ngân sách cho đến sau các ngày nghĩa vụ lớn."
+    });
+  } else {
+    priorityActions.push({
+      level: "info",
+      title: "Dòng tiền đủ an toàn theo dự báo",
+      detail: "Giữ hạn mức đề xuất, sau đó mới chuyển phần tiền dư vào mục tiêu tiết kiệm."
+    });
+  }
+  const upcomingObligations = (cashFlow?.events ?? [])
+    .filter(event => event.amount < 0 && event.kind !== "flexible")
+    .slice(0, 3)
+    .map(event => ({ date: event.date, label: event.label, amount: Math.abs(event.amount) }));
+  const summary = shortfall > 0
+    ? `Dòng tiền có thể âm vào ${cashFlow?.lowestBalanceDate ?? "cuối tháng"}; kế hoạch đã hạ hạn mức chi linh hoạt để bù thiếu.`
+    : projectedBalance < 0
     ? `Dự báo thiếu ${Math.abs(projectedBalance).toLocaleString("vi-VN")}đ. Kế hoạch đã giảm phần chi linh hoạt về mức có thể chi.`
     : flexibleAllowance === 0
     ? "Không còn dư địa chi linh hoạt sau các nghĩa vụ và dự báo hiện tại."
@@ -123,6 +175,12 @@ export function generateSmartPlan(data: AppData, currentMonth: string): SmartPla
     wantsTotal,
     savesTotal,
     summary,
-    isCurrentMonth: Boolean(forecast)
+    isCurrentMonth: Boolean(forecast),
+    lowestBalance: cashFlow?.lowestBalance ?? projectedBalance,
+    lowestBalanceDate: cashFlow?.lowestBalanceDate ?? null,
+    shortfall,
+    dailyFlexibleCap,
+    priorityActions,
+    upcomingObligations
   };
 }

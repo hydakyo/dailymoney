@@ -76,6 +76,27 @@ export function SmartPlanModal({
             <span>Được chi linh hoạt thêm:</span>
             <strong>{formatVnd(plan.flexibleAllowance)}</strong>
           </div>
+          <div className={plan.shortfall > 0 ? "row-between text-danger" : "row-between"}>
+            <span>Điểm đáy dòng tiền:</span>
+            <strong>{formatVnd(plan.lowestBalance)}{plan.lowestBalanceDate ? ` · ${plan.lowestBalanceDate}` : ""}</strong>
+          </div>
+        </div>
+
+        <div className="plan-breakdown">
+          <h4>Ưu tiên hành động</h4>
+          {plan.priorityActions.map(action => (
+            <div className={`cash-flow-action ${action.level}`} key={action.title}>
+              <strong>{action.title}</strong>
+              <p>{action.detail}</p>
+            </div>
+          ))}
+          {plan.dailyFlexibleCap > 0 && <p className="hint">Mức chi linh hoạt an toàn tối đa: {formatVnd(plan.dailyFlexibleCap)} mỗi ngày.</p>}
+          {plan.upcomingObligations.length > 0 && (
+            <div className="breakdown-section">
+              <strong>Nghĩa vụ sắp tới</strong>
+              {plan.upcomingObligations.map(item => <div className="row-between" key={`${item.date}:${item.label}`}><span>{item.date} · {item.label}</span><strong>-{formatVnd(item.amount)}</strong></div>)}
+            </div>
+          )}
         </div>
 
         {plan.suggestedBudgets.length ? (

@@ -811,6 +811,11 @@ button:focus-visible, a:focus-visible {
 .advice-desc { font-size: 14px; color: var(--text-main); line-height: 1.4; margin: 0; }
 .advice-action { font-size: 13px; font-weight: 500; color: var(--primary); margin: 0; }
 
+.cash-flow-action { border-left: 3px solid var(--brand-primary); background: var(--bg-app); border-radius: var(--radius-sm); padding: 10px 12px; margin: 8px 0; font-size: 13px; }
+.cash-flow-action p { margin: 4px 0 0; color: var(--text-muted); line-height: 1.4; }
+.cash-flow-action.danger { border-left-color: var(--danger); background: var(--danger-bg); }
+.cash-flow-action.warning { border-left-color: var(--warning); background: var(--warning-bg); }
+
 
 
 /* Calendar View */

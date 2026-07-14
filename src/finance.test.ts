@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDueDate, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, installmentPeriods, monthForecast, monthTotals, normalizeInstallmentPayments, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "./finance";
+import { advanceDueDate, cashFlowForecast, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, installmentPeriods, monthForecast, monthTotals, normalizeInstallmentPayments, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "./finance";
 import type { Budget, Category, Debt, DebtPayment, GoalEntry, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 
 const transaction = (kind: Transaction["kind"], amount: number, date = "2026-07-13", walletId = "w1"): Transaction => ({
@@ -118,6 +118,19 @@ describe("finance calculations", () => {
     });
 
     expect(forecast).toMatchObject({ expectedDebtRepayments: 500_000, expectedDebtReceivables: 300_000, projectedBalance: 800_000 });
+  });
+
+  it("detects a cash shortfall before a later income makes the month-end balance positive", () => {
+    const flow = cashFlowForecast({
+      balance: 100_000, month: "2026-07", transactions: [], occurrences: [], installments: [], budgets: [],
+      rules: [
+        rule({ id: "bill", amount: 200_000, nextDueDate: "2026-07-15" }),
+        rule({ id: "salary", kind: "income", amount: 300_000, nextDueDate: "2026-07-30" })
+      ],
+      asOf: new Date(2026, 6, 14)
+    });
+
+    expect(flow).toMatchObject({ endingBalance: 200_000, lowestBalance: -100_000, lowestBalanceDate: "2026-07-15", shortfall: 100_000 });
   });
 
   it("does not forecast a future installment period and finds the oldest missed period", () => {
