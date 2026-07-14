@@ -91,4 +91,23 @@ describe("E2E Restore", () => {
     const normalize = (payload: BackupPayload) => ({ ...payload, exportedAt: undefined });
     expect(normalize(restored)).toEqual(normalize(original));
   });
+
+  it("assigns legacy installment payments to consecutive obligation periods on restore", async () => {
+    const legacyInstallment = { id: "legacy-installment", name: "Laptop", totalAmount: 1_500_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-05-01", dueDate: 15, categoryId: "shopping", walletId: "wallet", createdAt: "", updatedAt: "" };
+    const legacyTransactions = [
+      { id: "legacy-1", kind: "expense" as const, amount: 500_000, categoryId: "shopping", walletId: "wallet", date: "2026-08-01", note: "Trả góp: Laptop", installmentId: "legacy-installment", createdAt: "2026-08-01T10:00:00.000Z", updatedAt: "" },
+      { id: "legacy-2", kind: "expense" as const, amount: 500_000, categoryId: "shopping", walletId: "wallet", date: "2026-08-01", note: "Trả góp: Laptop", installmentId: "legacy-installment", createdAt: "2026-08-01T10:01:00.000Z", updatedAt: "" },
+      { id: "legacy-3", kind: "expense" as const, amount: 500_000, categoryId: "shopping", walletId: "wallet", date: "2026-08-20", note: "Trả góp: Laptop", installmentId: "legacy-installment", createdAt: "2026-08-20T10:00:00.000Z", updatedAt: "" }
+    ];
+    await restoreBackup({
+      ...payloadV3,
+      wallets: [{ id: "wallet", name: "Ví chính", icon: "Wallet", color: "#000", initialBalance: 0, archived: false, createdAt: "", updatedAt: "" }],
+      installments: [legacyInstallment],
+      transactions: legacyTransactions
+    });
+
+    const restored = await db.transactions.orderBy("id").toArray();
+    expect(restored.map(transaction => transaction.installmentPeriod)).toEqual(["2026-05", "2026-06", "2026-07"]);
+    expect(await db.installments.get("legacy-installment")).toMatchObject({ closedAt: expect.any(String) });
+  });
 });

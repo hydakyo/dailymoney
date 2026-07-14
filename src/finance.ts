@@ -59,12 +59,12 @@ export function normalizeInstallmentPayments(transactions: Transaction[], instal
     const periods = installmentPeriods(installmentsById.get(installmentId)!);
     const expectedPeriods = new Set(periods);
     const assignedPeriods = new Set<string>();
-    const alreadyCanonical = payments.every(payment => {
+    const alreadyCanonical = payments.length <= periods.length && payments.every(payment => {
       const period = payment.installmentPeriod;
       if (!period || !expectedPeriods.has(period) || assignedPeriods.has(period)) return false;
       assignedPeriods.add(period);
       return true;
-    });
+    }) && periods.slice(0, payments.length).every(period => assignedPeriods.has(period));
     if (alreadyCanonical) continue;
 
     payments.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));

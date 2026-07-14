@@ -4,7 +4,7 @@ import { defaultCategories } from "./seed";
 import { newId } from "./domain";
 import { normalizeInstallmentPayments, paidInstallmentPeriods } from "./finance";
 
-class DailyMoneyDatabase extends Dexie {
+export class DailyMoneyDatabase extends Dexie {
   settings!: EntityTable<AppSettings, "id">;
   wallets!: EntityTable<Wallet, "id">;
   categories!: EntityTable<Category, "id">;
@@ -18,8 +18,8 @@ class DailyMoneyDatabase extends Dexie {
   goalEntries!: EntityTable<GoalEntry, "id">;
   installments!: EntityTable<Installment, "id">;
 
-  constructor() {
-    super("daily-money");
+  constructor(name = "daily-money") {
+    super(name);
     
     this.version(1).stores({
       settings: "id",
@@ -103,10 +103,6 @@ class DailyMoneyDatabase extends Dexie {
       recurringOccurrences: "id, [ruleId+dueDate], status, dueDate", debts: "id, kind, dueDate, closedAt",
       debtPayments: "id, debtId, date, transactionId", goals: "id, closedAt", goalEntries: "id, goalId, date",
       installments: "id, closedAt, dueDate"
-    }).upgrade(async trans => {
-      await trans.table("transactions").toCollection().modify((transaction: Transaction) => {
-        if (transaction.installmentId && !transaction.installmentPeriod) transaction.installmentPeriod = transaction.date.slice(0, 7);
-      });
     });
 
     this.version(6).stores({
@@ -116,28 +112,6 @@ class DailyMoneyDatabase extends Dexie {
       recurringOccurrences: "id, [ruleId+dueDate], status, dueDate", debts: "id, kind, dueDate, closedAt",
       debtPayments: "id, debtId, date, transactionId", goals: "id, closedAt", goalEntries: "id, goalId, date",
       installments: "id, closedAt, dueDate"
-    }).upgrade(async trans => {
-      const transactions = await trans.table("transactions").toArray() as Transaction[];
-      const seen = new Set<string>();
-      for (const transaction of transactions) {
-        if (!transaction.installmentId) continue;
-        transaction.installmentPeriod ??= transaction.date.slice(0, 7);
-        const key = `${transaction.installmentId}:${transaction.installmentPeriod}`;
-        if (seen.has(key)) {
-          transaction.installmentId = undefined;
-          transaction.installmentPeriod = undefined;
-        } else {
-          seen.add(key);
-        }
-      }
-      await trans.table("transactions").bulkPut(transactions);
-      const installments = await trans.table("installments").toArray() as Installment[];
-      for (const installment of installments) {
-        const paidPeriods = new Set(transactions.filter(transaction => transaction.installmentId === installment.id && transaction.installmentPeriod).map(transaction => transaction.installmentPeriod));
-        installment.closedAt = paidPeriods.size >= installment.totalMonths ? installment.closedAt ?? new Date().toISOString() : undefined;
-        installment.updatedAt = new Date().toISOString();
-      }
-      await trans.table("installments").bulkPut(installments);
     });
 
     this.version(7).stores({
@@ -147,26 +121,6 @@ class DailyMoneyDatabase extends Dexie {
       recurringOccurrences: "id, [ruleId+dueDate], status, dueDate", debts: "id, kind, dueDate, closedAt",
       debtPayments: "id, debtId, date, transactionId", goals: "id, closedAt", goalEntries: "id, goalId, date",
       installments: "id, closedAt, dueDate"
-    }).upgrade(async trans => {
-      const transactions = await trans.table("transactions").toArray() as Transaction[];
-      const seen = new Set<string>();
-      for (const transaction of transactions) {
-        if (!transaction.installmentId) continue;
-        transaction.installmentPeriod ??= transaction.date.slice(0, 7);
-        const key = `${transaction.installmentId}:${transaction.installmentPeriod}`;
-        if (seen.has(key)) {
-          transaction.installmentId = undefined;
-          transaction.installmentPeriod = undefined;
-        } else seen.add(key);
-      }
-      await trans.table("transactions").bulkPut(transactions);
-      const installments = await trans.table("installments").toArray() as Installment[];
-      for (const installment of installments) {
-        const paidPeriods = new Set(transactions.filter(transaction => transaction.installmentId === installment.id && transaction.installmentPeriod).map(transaction => transaction.installmentPeriod));
-        installment.closedAt = paidPeriods.size >= installment.totalMonths ? installment.closedAt ?? new Date().toISOString() : undefined;
-        installment.updatedAt = new Date().toISOString();
-      }
-      await trans.table("installments").bulkPut(installments);
     });
 
     this.version(8).stores({

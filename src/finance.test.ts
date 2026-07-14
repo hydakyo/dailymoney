@@ -127,13 +127,13 @@ describe("finance calculations", () => {
     expect(normalizeInstallmentPayments(payments, [installment]).map(payment => payment.installmentPeriod)).toEqual(["2026-05", "2026-06"]);
   });
 
-  it("preserves valid assigned periods when reconciling later app launches", () => {
+  it("normalizes a non-contiguous set of assigned periods into a paid prefix", () => {
     const installment = { id: "phone", name: "Phone", totalAmount: 1_500_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-05-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
     const payments = [
       { ...transaction("expense", 500_000, "2026-05-20"), id: "may", installmentId: "phone", installmentPeriod: "2026-05" },
       { ...transaction("expense", 500_000, "2026-07-20"), id: "july", installmentId: "phone", installmentPeriod: "2026-07" }
     ];
 
-    expect(normalizeInstallmentPayments(payments, [installment]).map(payment => payment.installmentPeriod)).toEqual(["2026-05", "2026-07"]);
+    expect(normalizeInstallmentPayments(payments, [installment]).map(payment => payment.installmentPeriod)).toEqual(["2026-05", "2026-06"]);
   });
 });
