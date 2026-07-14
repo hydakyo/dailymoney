@@ -271,7 +271,12 @@ export default function App() {
                 await db.transactions.delete(id);
                 if (tx.installmentId) {
                   const installment = await db.installments.get(tx.installmentId);
-                  const paidCount = await db.transactions.where("installmentId").equals(tx.installmentId).count();
+                  const paidPeriods = new Set(
+                    (await db.transactions.where("installmentId").equals(tx.installmentId).toArray())
+                      .map(payment => payment.installmentPeriod)
+                      .filter((period): period is string => Boolean(period)),
+                  );
+                  const paidCount = paidPeriods.size;
                   if (installment && paidCount < installment.totalMonths) {
                     await db.installments.update(installment.id, { closedAt: undefined, updatedAt: new Date().toISOString() });
                   }
@@ -360,7 +365,12 @@ export default function App() {
                 const paidForPeriod = await db.transactions.where("[installmentId+installmentPeriod]").equals([installment.id, installmentPeriod]).first();
                 if (paidForPeriod) throw new Error("Kỳ trả góp tháng này đã được xác nhận.");
                 await db.transactions.add({ id: newId(), kind: "expense", amount: installment.monthlyAmount, categoryId: installment.categoryId, walletId: primaryWalletId, date: today(), note: `Trả góp: ${installment.name}`, installmentId: installment.id, installmentPeriod, createdAt: now, updatedAt: now });
-                const paidCount = await db.transactions.where("installmentId").equals(installment.id).count();
+                const paidPeriods = new Set(
+                  (await db.transactions.where("installmentId").equals(installment.id).toArray())
+                    .map(payment => payment.installmentPeriod)
+                    .filter((period): period is string => Boolean(period)),
+                );
+                const paidCount = paidPeriods.size;
                 if (paidCount >= installment.totalMonths) await db.installments.update(installment.id, { closedAt: now, updatedAt: now });
               });
               await refresh();

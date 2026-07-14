@@ -95,4 +95,9 @@ describe("finance calculations", () => {
     expect(oldestUnpaidInstallmentPeriod(installment, [])).toBe("2026-08");
     expect(monthForecast({ balance: 1_000_000, month: "2026-07", transactions: [], rules: [], occurrences: [], installments: [installment], budgets: [], asOf: new Date(2026, 6, 14) })?.expectedInstallments).toBe(0);
   });
+
+  it("forecasts every unpaid installment period that is due by month end", () => {
+    const installment = { id: "phone", name: "Phone", totalAmount: 3_000_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-05-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
+    expect(monthForecast({ balance: 5_000_000, month: "2026-07", transactions: [], rules: [], occurrences: [], installments: [installment], budgets: [], asOf: new Date(2026, 6, 14) })?.expectedInstallments).toBe(1_500_000);
+  });
 });

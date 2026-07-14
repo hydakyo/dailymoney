@@ -160,9 +160,6 @@ export function PlansView({
               const now = new Date();
               const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
               const paymentPeriod = oldestUnpaidInstallmentPeriod(item, transactions);
-              const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-              const effectiveDueDate = Math.min(item.dueDate, daysInCurrentMonth);
-              const remainingMonths = item.totalMonths - paidMonths;
 
               return (
                 <Card key={item.id} className="plan-card">
@@ -181,7 +178,7 @@ export function PlansView({
                   </div>
                   <div className="plan-actions" style={{ marginTop: 8 }}>
                     <p>Đã xác nhận: {paidMonths}/{item.totalMonths} kỳ · Hạn ngày {item.dueDate}</p>
-                    {paidMonths < item.totalMonths && paymentPeriod && paymentPeriod <= currentPeriod && <button className="soft" onClick={() => void onPayInstallment(item)}>Xác nhận {paymentPeriod === currentPeriod ? "trả kỳ này" : `trả bù ${paymentPeriod}`}</button>}
+                    {paidMonths < item.totalMonths && paymentPeriod && paymentPeriod <= currentPeriod && <button className="soft" onClick={() => void onPayInstallment(item).catch(() => window.alert("Kỳ trả góp này vừa được xác nhận. Hãy kiểm tra lại danh sách."))}>Xác nhận {paymentPeriod === currentPeriod ? "trả kỳ này" : `trả bù ${paymentPeriod}`}</button>}
                     <button
                       className="icon-button subtle"
                       aria-label="Xóa khoản trả góp"
