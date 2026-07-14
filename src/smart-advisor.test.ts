@@ -40,6 +40,8 @@ describe("adaptive smart plan", () => {
 
     expect(plan.mandatoryExpenses).toBe(2_000_000);
     expect(plan.flexibleAllowance).toBeGreaterThan(0);
+    expect(plan.defaultScenario).toBe("base");
+    expect(plan.flexibleAllowance).toBeLessThanOrEqual(plan.trendFlexibleExpense);
     expect(food?.suggestedLimit).toBeGreaterThan(shopping?.suggestedLimit ?? 0);
     expect(plan.needsTotal).toBe(food?.suggestedLimit);
     expect(plan.wantsTotal).toBe(shopping?.suggestedLimit);
@@ -54,6 +56,25 @@ describe("adaptive smart plan", () => {
     expect(paymentDay?.events).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: "Giao dịch lặp", amount: -1_000_000 }),
       expect.objectContaining({ label: "Trả góp: Phone", amount: -500_000 })
+    ]));
+    expect(plan.lowestBalance).toBeGreaterThanOrEqual(plan.reserveFloor);
+  });
+
+  it("reserves the monthly contribution required by active dated savings goals", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-14T12:00:00.000Z"));
+    const withGoal: AppData = {
+      ...data,
+      goals: [{ id: "trip", name: "Du lịch", target: 600_000, targetDate: "2026-09-30", color: "#000", icon: "Goal", createdAt: "", updatedAt: "" }]
+    };
+
+    const withoutGoal = generateSmartPlan(data, "2026-07");
+    const plan = generateSmartPlan(withGoal, "2026-07");
+
+    expect(plan.goalCommitmentTotal).toBe(200_000);
+    expect(plan.flexibleAllowance).toBe(withoutGoal.flexibleAllowance - 200_000);
+    expect(plan.dailyPlan.at(-1)?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Mục tiêu: Du lịch", amount: -200_000 })
     ]));
   });
 

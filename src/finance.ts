@@ -24,7 +24,7 @@ export type CashFlowEvent = {
   date: string;
   amount: number;
   label: string;
-  kind: "income" | "recurring" | "installment" | "debt" | "flexible";
+  kind: "income" | "recurring" | "installment" | "debt" | "goal" | "flexible";
   priority?: ObligationPriority;
   categoryId?: string;
 };

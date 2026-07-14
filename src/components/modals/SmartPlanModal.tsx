@@ -16,6 +16,10 @@ export function SmartPlanModal({ data, month, onClose, onApplied }: { data: AppD
   const [showFullSchedule, setShowFullSchedule] = useState(false);
   const confidenceLabel = { low: "Đang học", medium: "Khá tin cậy", high: "Tin cậy" }[plan.behaviorConfidence];
   const existingBudgets = new Map(data.budgets.filter(budget => budget.month === month).map(budget => [budget.categoryId, budget]));
+  const plannedCategoryIds = new Set(plan.suggestedBudgets.map(item => item.categoryId));
+  const replacedBudgets = data.budgets
+    .filter(budget => budget.month === month && !plannedCategoryIds.has(budget.categoryId))
+    .map(budget => ({ ...budget, categoryName: data.categories.find(category => category.id === budget.categoryId)?.name ?? "Danh mục đã xóa" }));
   const visibleDailyPlan = showFullSchedule
     ? plan.dailyPlan
     : plan.dailyPlan.filter((item, index) => index < 7 || item.income > 0 || item.fixedExpense > 0 || item.isBelowReserve);
@@ -25,7 +29,10 @@ export function SmartPlanModal({ data, month, onClose, onApplied }: { data: AppD
   }
 
   const handleApply = async () => {
-    if (!plan.isBalanced || !plan.suggestedBudgets.length || !window.confirm(`Áp dụng kịch bản ${plan.scenarios.find(item => item.id === plan.selectedScenario)?.label.toLowerCase()}? Các hạn mức bên dưới sẽ được cập nhật.`)) return;
+    const replacementNote = replacedBudgets.length
+      ? `\n\nCác ngân sách không thuộc kế hoạch sẽ được xóa:\n${replacedBudgets.map(item => `• ${item.categoryName}: ${formatVnd(item.limit)}`).join("\n")}`
+      : "";
+    if (!plan.isBalanced || !plan.suggestedBudgets.length || !window.confirm(`Thay thế toàn bộ ngân sách tháng bằng kịch bản ${plan.scenarios.find(item => item.id === plan.selectedScenario)?.label.toLowerCase()}?${replacementNote}`)) return;
     setApplying(true);
     setError("");
     const now = new Date().toISOString();
@@ -34,6 +41,9 @@ export function SmartPlanModal({ data, month, onClose, onApplied }: { data: AppD
       await db.transaction("rw", db.budgets, async () => {
         const currentBudgets = await db.budgets.where("month").equals(month).toArray();
         const currentByCategory = new Map(currentBudgets.map(budget => [budget.categoryId, budget]));
+        for (const budget of currentBudgets) {
+          if (!plannedCategoryIds.has(budget.categoryId)) await db.budgets.delete(budget.id);
+        }
         for (const item of plan.suggestedBudgets) {
           const existing = currentByCategory.get(item.categoryId);
           if (existing) await db.budgets.update(existing.id, { limit: item.suggestedLimit, updatedAt: now });
@@ -60,13 +70,14 @@ export function SmartPlanModal({ data, month, onClose, onApplied }: { data: AppD
         </div>
 
         <div className="plan-summary-box">
-          <div className="row-between"><span>Hôm nay nên chi linh hoạt tối đa</span><strong className={plan.dailyFlexibleCap > 0 ? "text-success" : "text-danger"}>{plan.dailyFlexibleCap > 0 ? `${formatVnd(plan.dailyFlexibleCap)}/ngày` : "Tạm dừng chi linh hoạt"}</strong></div>
+          <div className="row-between"><span>Mức chi linh hoạt bình quân từ ngày mai</span><strong className={plan.dailyFlexibleCap > 0 ? "text-success" : "text-danger"}>{plan.dailyFlexibleCap > 0 ? `${formatVnd(plan.dailyFlexibleCap)}/ngày` : "Tạm dừng chi linh hoạt"}</strong></div>
           <div className="row-between"><span>Chi linh hoạt theo xu hướng</span><strong>{formatVnd(plan.trendFlexibleExpense)}</strong></div>
           <div className="row-between"><span>Hạn mức theo kế hoạch</span><strong>{formatVnd(plan.flexibleAllowance)}</strong></div>
           <div className="row-between"><span>Mức cần cắt giảm</span><strong className={plan.budgetReduction > 0 ? "text-danger" : ""}>{formatVnd(plan.budgetReduction)}</strong></div>
           <hr />
           <div className="row-between"><span>Quỹ tối thiểu cần giữ</span><strong>{formatVnd(plan.reserveFloor)}</strong></div>
-          <div className={plan.shortfall > 0 ? "row-between text-danger" : "row-between"}><span>Ngày rủi ro cao nhất</span><strong>{plan.lowestBalanceDate ? formatDateVi(plan.lowestBalanceDate) : "Không có"}</strong></div>
+          {plan.goalCommitmentTotal > 0 && <div className="row-between"><span>Dành cho mục tiêu tiết kiệm</span><strong className="text-primary">{formatVnd(plan.goalCommitmentTotal)}</strong></div>}
+          <div className={plan.lowestBalance < plan.reserveFloor ? "row-between text-danger" : "row-between"}><span>Số dư dự kiến thấp nhất sau kế hoạch</span><strong>{plan.lowestBalanceDate ? formatDateVi(plan.lowestBalanceDate) : "Không có"}</strong></div>
           <div className={plan.lowestBalance < plan.reserveFloor ? "row-between text-danger" : "row-between"}><span>Số dư thấp nhất</span><strong>{formatVnd(plan.lowestBalance)}</strong></div>
         </div>
 
@@ -112,6 +123,8 @@ export function SmartPlanModal({ data, month, onClose, onApplied }: { data: AppD
               </div>;
             })}
           </div>}
+          {replacedBudgets.length > 0 && <div className="alert alert-danger"><strong>Sẽ thay thế ngân sách cũ</strong><p>Khi áp dụng, {replacedBudgets.map(item => item.categoryName).join(", ")} sẽ được xóa khỏi ngân sách tháng vì không nằm trong kế hoạch này.</p></div>}
+          {plan.goalCommitments.length > 0 && <div className="breakdown-section"><strong>Mục tiêu được bảo vệ trong kế hoạch</strong>{plan.goalCommitments.map(goal => <div className="row-between" key={goal.goalId}><span>{goal.name}</span><strong>{formatVnd(goal.amount)}/tháng</strong></div>)}<p className="hint">Khoản đóng góp này đã được giữ riêng trong forecast; hãy ghi đóng góp khi thực sự chuyển tiền vào mục tiêu.</p></div>}
           <div className="breakdown-section"><div className="row-between"><span className="text-success"><strong>Quỹ cần giữ</strong></span><strong>{formatVnd(plan.recommendedReserve)}</strong></div><p className="hint">{plan.recommendedReserve > 0 ? "Gồm khoảng 7 ngày chi thiết yếu hoặc 5% nghĩa vụ còn lại, lấy mức cao hơn." : "Hiện chưa đủ khả năng tạo quỹ dự phòng."}</p></div>
         </div>
       </div>
