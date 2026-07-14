@@ -170,6 +170,7 @@ export function DebtPaymentForm({ debt, outstanding, onSubmit, onClose }: { debt
       await onSubmit({ id: newId(), amount: Number(amount), date, note: note || undefined });
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Không thể ghi khoản thanh toán. Vui lòng thử lại.");
+    } finally {
       setSubmitting(false);
     }
   };

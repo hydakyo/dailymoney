@@ -460,8 +460,10 @@ export default function App() {
               const debt = data.debts.find(item => item.id === selectedDebtId);
               if (!debt) throw new Error("Không tìm thấy khoản công nợ.");
               const now = new Date().toISOString();
-              const category = data.categories.find(item => item.kind === (debt.kind === "payable" ? "expense" : "income") && !item.archived) ?? data.categories[0];
-              if (!category || !Number.isFinite(value.amount) || value.amount <= 0) throw new Error("Số tiền thanh toán không hợp lệ.");
+              const expectedKind = debt.kind === "payable" ? "expense" : "income";
+              const category = data.categories.find(item => item.kind === expectedKind && !item.archived);
+              if (!category) throw new Error(`Chưa có danh mục ${expectedKind === "income" ? "thu" : "chi"} khả dụng.`);
+              if (!Number.isFinite(value.amount) || value.amount <= 0) throw new Error("Số tiền thanh toán không hợp lệ.");
               const transactionId = newId();
               await db.transaction("rw", db.transactions, db.debtPayments, db.debts, async () => {
                 const currentDebt = await db.debts.get(debt.id);
