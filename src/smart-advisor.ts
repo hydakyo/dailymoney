@@ -1,103 +1,128 @@
+import type { Category, Transaction } from "./domain";
 import type { AppData } from "./store";
-import type { Category } from "./domain";
-import { debtOutstanding } from "./finance";
+import { budgetProgress, monthForecast, totalBalance } from "./finance";
+import { addMonths } from "./utils";
 
 export interface SuggestedBudget {
   categoryId: string;
   categoryName: string;
   suggestedLimit: number;
-  kind: "need" | "want" | "save";
+  kind: "need" | "want";
 }
 
 export interface SmartPlan {
-  averageIncome: number;
+  projectedBalance: number;
+  forecastIncome: number;
   mandatoryExpenses: number;
-  disposableIncome: number;
+  flexibleAllowance: number;
+  recommendedReserve: number;
   suggestedBudgets: SuggestedBudget[];
   needsTotal: number;
   wantsTotal: number;
   savesTotal: number;
+  summary: string;
+  isCurrentMonth: boolean;
+}
+
+const NEED_CATEGORY_NAMES = new Set(["Ăn uống", "Di chuyển", "Nhà ở", "Hóa đơn", "Sức khỏe", "Giáo dục", "Gia đình"]);
+
+function isFlexibleExpense(transaction: Transaction) {
+  return transaction.kind === "expense" && !transaction.recurringRuleId && !transaction.installmentId && !transaction.debtPaymentId;
+}
+
+function roundUpToThousand(amount: number) {
+  return Math.ceil(Math.max(0, amount) / 1_000) * 1_000;
+}
+
+function categoryKind(category: Category): "need" | "want" {
+  return NEED_CATEGORY_NAMES.has(category.name) ? "need" : "want";
 }
 
 export function generateSmartPlan(data: AppData, currentMonth: string): SmartPlan {
-  let totalIncome = 0;
-  const incomeMonths = new Set<string>();
-  
-  // Tính tổng thu nhập lịch sử để lấy số trung bình (Dự báo thu nhập)
-  for (const t of data.transactions) {
-    if (t.kind === "income") {
-      incomeMonths.add(t.date.substring(0, 7));
-      totalIncome += t.amount;
+  const balance = totalBalance(data.wallets, data.transactions);
+  const budgetItems = budgetProgress(data.budgets, data.transactions, data.categories, currentMonth);
+  const forecast = monthForecast({
+    balance,
+    month: currentMonth,
+    transactions: data.transactions,
+    rules: data.rules,
+    occurrences: data.occurrences,
+    installments: data.installments,
+    budgets: budgetItems,
+    debts: data.debts,
+    debtPayments: data.payments
+  });
+  const expenseCategories = data.categories.filter(category => category.kind === "expense" && !category.archived);
+  const historyMonths = [1, 2, 3].map(offset => addMonths(currentMonth, -offset));
+  const historyTransactions = data.transactions.filter(transaction => isFlexibleExpense(transaction) && historyMonths.some(month => transaction.date.startsWith(month)));
+  const currentTransactions = data.transactions.filter(transaction => isFlexibleExpense(transaction) && transaction.date.startsWith(currentMonth));
+  const currentSpentByCategory = new Map<string, number>();
+  for (const transaction of currentTransactions) {
+    currentSpentByCategory.set(transaction.categoryId, (currentSpentByCategory.get(transaction.categoryId) ?? 0) + transaction.amount);
+  }
+
+  const averageMonthlyByCategory = new Map<string, number>();
+  for (const category of expenseCategories) {
+    const monthsWithData = new Set(historyTransactions.filter(transaction => transaction.categoryId === category.id).map(transaction => transaction.date.slice(0, 7)));
+    const total = historyTransactions.filter(transaction => transaction.categoryId === category.id).reduce((sum, transaction) => sum + transaction.amount, 0);
+    if (total > 0) averageMonthlyByCategory.set(category.id, total / Math.max(1, monthsWithData.size));
+  }
+
+  const baselineRemainingByCategory = new Map<string, number>();
+  for (const category of expenseCategories) {
+    const average = averageMonthlyByCategory.get(category.id) ?? 0;
+    const spent = currentSpentByCategory.get(category.id) ?? 0;
+    if (average > 0) baselineRemainingByCategory.set(category.id, Math.max(0, average - spent));
+  }
+  if (!baselineRemainingByCategory.size) {
+    for (const budget of budgetItems) {
+      if (budget.limit > budget.spent) baselineRemainingByCategory.set(budget.categoryId, budget.limit - budget.spent);
     }
   }
-  let averageIncome = incomeMonths.size > 0 ? totalIncome / incomeMonths.size : 0;
-  
-  // Nếu người dùng chưa có dữ liệu thu nhập, lấy mặc định 10M để demo thuật toán
-  if (averageIncome === 0) {
-    averageIncome = 10000000;
-  }
 
-  // Các khoản chi bắt buộc (Trả góp, Nợ đến hạn)
-  let mandatoryExpenses = 0;
-  
-  const [currentY, currentM] = currentMonth.split("-").map(Number);
-  
-  for (const inst of data.installments) {
-    if (inst.closedAt) continue;
-    const [startY, startM] = inst.startDate.split("-").map(Number);
-    const diffMonths = (currentY - startY) * 12 + (currentM - startM);
-    if (diffMonths >= 0 && diffMonths < inst.totalMonths) {
-      mandatoryExpenses += inst.monthlyAmount;
-    }
-  }
-  
-  for (const debt of data.debts) {
-    if (debt.kind === "payable" && !debt.closedAt && debt.dueDate && debt.dueDate.startsWith(currentMonth)) {
-      mandatoryExpenses += debtOutstanding(debt, data.payments);
-    }
-  }
-
-  // Thu nhập khả dụng sau khi trừ nợ
-  let disposableIncome = averageIncome - mandatoryExpenses;
-  if (disposableIncome < 0) disposableIncome = 0;
-
-  // Áp dụng Quy tắc 50/30/20
-  const needsTotal = disposableIncome * 0.5;
-  const wantsTotal = disposableIncome * 0.3;
-  const savesTotal = disposableIncome * 0.2;
-
-  const needsCategories = ["Ăn uống", "Di chuyển", "Nhà ở", "Hóa đơn", "Sức khỏe", "Giáo dục", "Gia đình"];
-  const wantsCategories = ["Mua sắm", "Giải trí", "Khác"];
-  
+  const baselineRemaining = [...baselineRemainingByCategory.values()].reduce((sum, amount) => sum + amount, 0);
+  const projectedBalance = forecast?.projectedBalance ?? balance;
+  const forecastIncome = forecast ? forecast.expectedIncome + forecast.expectedDebtReceivables : 0;
+  const mandatoryExpenses = forecast ? forecast.expectedRecurringExpense + forecast.expectedInstallments + forecast.expectedDebtRepayments : 0;
+  const forecastFlexible = forecast?.projectedFlexibleExpense ?? baselineRemaining;
+  const flexibleAllowance = Math.max(0, forecastFlexible + Math.min(0, projectedBalance));
+  const historicalDailySpend = historyTransactions.reduce((sum, transaction) => sum + transaction.amount, 0) / Math.max(1, historyMonths.length * 30);
+  const recommendedReserve = Math.min(Math.max(0, projectedBalance), historicalDailySpend * 7);
+  const savesTotal = Math.max(0, projectedBalance - recommendedReserve);
   const suggestedBudgets: SuggestedBudget[] = [];
-  
-  const cNeeds = data.categories.filter(c => needsCategories.includes(c.name) && !c.archived && c.kind === "expense");
-  const cWants = data.categories.filter(c => wantsCategories.includes(c.name) && !c.archived && c.kind === "expense");
+  const weightTotal = baselineRemaining || 1;
 
-  // Chia đều ngân sách thiết yếu cho các hạng mục thiết yếu
-  if (cNeeds.length > 0) {
-    // Làm tròn đến hàng nghìn (1000)
-    const split = Math.round((needsTotal / cNeeds.length) / 1000) * 1000;
-    for (const c of cNeeds) {
-      suggestedBudgets.push({ categoryId: c.id, categoryName: c.name, suggestedLimit: split, kind: "need" });
-    }
-  }
-  
-  // Chia đều ngân sách cá nhân cho các hạng mục tiêu dùng
-  if (cWants.length > 0) {
-    const split = Math.round((wantsTotal / cWants.length) / 1000) * 1000;
-    for (const c of cWants) {
-      suggestedBudgets.push({ categoryId: c.id, categoryName: c.name, suggestedLimit: split, kind: "want" });
-    }
+  for (const category of expenseCategories) {
+    const baseline = baselineRemainingByCategory.get(category.id) ?? 0;
+    if (baseline <= 0) continue;
+    const spent = currentSpentByCategory.get(category.id) ?? 0;
+    suggestedBudgets.push({
+      categoryId: category.id,
+      categoryName: category.name,
+      suggestedLimit: roundUpToThousand(spent + flexibleAllowance * (baseline / weightTotal)),
+      kind: categoryKind(category)
+    });
   }
 
-  return { 
-    averageIncome, 
-    mandatoryExpenses, 
-    disposableIncome, 
+  const needsTotal = suggestedBudgets.filter(item => item.kind === "need").reduce((sum, item) => sum + item.suggestedLimit, 0);
+  const wantsTotal = suggestedBudgets.filter(item => item.kind === "want").reduce((sum, item) => sum + item.suggestedLimit, 0);
+  const summary = projectedBalance < 0
+    ? `Dự báo thiếu ${Math.abs(projectedBalance).toLocaleString("vi-VN")}đ. Kế hoạch đã giảm phần chi linh hoạt về mức có thể chi.`
+    : flexibleAllowance === 0
+    ? "Không còn dư địa chi linh hoạt sau các nghĩa vụ và dự báo hiện tại."
+    : "Hạn mức danh mục dựa trên mức chi thực tế, sau khi ưu tiên các nghĩa vụ đã dự báo.";
+
+  return {
+    projectedBalance,
+    forecastIncome,
+    mandatoryExpenses,
+    flexibleAllowance,
+    recommendedReserve,
     suggestedBudgets,
     needsTotal,
     wantsTotal,
-    savesTotal
+    savesTotal,
+    summary,
+    isCurrentMonth: Boolean(forecast)
   };
 }

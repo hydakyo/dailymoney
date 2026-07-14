@@ -101,7 +101,7 @@ export function PlansView({
                 <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px" }}>
                   <Goal size={20} /> Kế hoạch Thông minh
                 </h3>
-                <p style={{ margin: "4px 0 0", fontSize: "0.9em", opacity: 0.9 }}>Tự động đề xuất ngân sách 50/30/20</p>
+                <p style={{ margin: "4px 0 0", fontSize: "0.9em", opacity: 0.9 }}>Theo forecast, nghĩa vụ và thói quen chi tiêu</p>
               </div>
               <Plus size={24} />
             </div>
