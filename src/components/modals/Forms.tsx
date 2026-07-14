@@ -207,7 +207,6 @@ export function InstallmentForm({ categories, wallets, onSubmit, onClose }: { ca
       <label className="field"><span>Ngày bắt đầu góp</span><input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} /></label>
       <label className="field"><span>Danh mục chi</span><select value={categoryId} onChange={event => setCategoryId(event.target.value)}>{expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
       <label className="field"><span>Ví trừ tiền</span><select value={walletId} onChange={event => setWalletId(event.target.value)}>{wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
-      
       <p className="form-note">Mỗi tháng bạn sẽ trả: {totalAmount && totalMonths ? formatVnd(Number(totalAmount) / Number(totalMonths)) : "0 đ"}</p>
       
       <button className="primary full" disabled={!name || !totalAmount || !totalMonths || !categoryId} onClick={() => void onSubmit({ 

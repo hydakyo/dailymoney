@@ -1,19 +1,15 @@
-import React from "react";
 import { ChevronRight, KeyRound, BellRing, Download, Upload, ReceiptText, WalletCards, ClipboardList } from "lucide-react";
 import type { AppSettings, Category, Transaction, Wallet } from "../../domain";
-import { formatVnd, today } from "../../domain";
-import { transactionsCsv } from "../../backup";
-import { downloadFile } from "../../backup";
+import { formatVnd } from "../../domain";
 import { isNativeApp } from "../../notifications";
 import { supportsWebPush } from "../../web-push";
-import { db } from "../../db";
 import { Card } from "../ui/Card";
 
 export function SettingsView({
   settings,
   wallets,
-  categories,
   transactions,
+  categories,
   onOpeningBalance,
   onWallets,
   onCategories,
@@ -22,12 +18,12 @@ export function SettingsView({
   onRestore,
   onPin,
   onExportCsv,
-  onReset
+  onReset,
 }: {
   settings: AppSettings;
   wallets: Wallet[];
-  categories: Category[];
   transactions: Transaction[];
+  categories: Category[];
   onOpeningBalance: () => void;
   onWallets: () => void;
   onCategories: () => void;

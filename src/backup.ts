@@ -3,6 +3,8 @@ import { BackupSchema } from "./domain";
 
 import { z } from "zod";
 
+const Base64Schema = z.string().regex(/^[A-Za-z0-9+/]*={0,2}$/);
+
 const EncryptedBackupSchema = z.object({
   format: z.literal("daily-money-encrypted"),
   version: z.literal(1),
@@ -10,12 +12,12 @@ const EncryptedBackupSchema = z.object({
     name: z.literal("PBKDF2"),
     hash: z.literal("SHA-256"),
     iterations: z.number().int().min(100_000).max(2_000_000),
-    salt: z.string().max(128)
+    salt: Base64Schema.max(128)
   }),
   cipher: z.object({
     name: z.literal("AES-GCM"),
-    iv: z.string().max(64),
-    ciphertext: z.string().max(50_000_000)
+    iv: Base64Schema.max(64),
+    ciphertext: Base64Schema.max(50_000_000)
   })
 });
 
@@ -63,8 +65,12 @@ export async function decryptBackup(value: unknown, password: string): Promise<B
   const validEnv = env.data;
 
   try {
-    const key = await keyFromPassword(password, fromBase64(validEnv.kdf.salt), validEnv.kdf.iterations);
-    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: asBufferSource(fromBase64(validEnv.cipher.iv)) }, key, asBufferSource(fromBase64(validEnv.cipher.ciphertext)));
+    const decodedSalt = fromBase64(validEnv.kdf.salt);
+    const decodedIv = fromBase64(validEnv.cipher.iv);
+    if (decodedSalt.length !== 16) throw new Error("Salt backup không hợp lệ.");
+    if (decodedIv.length !== 12) throw new Error("IV backup không hợp lệ.");
+    const key = await keyFromPassword(password, decodedSalt, validEnv.kdf.iterations);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: asBufferSource(decodedIv) }, key, asBufferSource(fromBase64(validEnv.cipher.ciphertext)));
     const payload = JSON.parse(decoder.decode(plain));
     const parsed = BackupSchema.safeParse(payload);
     if (!parsed.success) {
@@ -72,8 +78,8 @@ export async function decryptBackup(value: unknown, password: string): Promise<B
       throw new Error("Nội dung backup không hợp lệ hoặc bị hỏng.");
     }
     return parsed.data;
-  } catch (err: any) {
-    if (err.message.includes("không hợp lệ")) throw err;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("không hợp lệ")) throw error;
     throw new Error("Không thể mở backup. Kiểm tra lại mật khẩu hoặc file.");
   }
 }

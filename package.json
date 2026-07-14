@@ -12,7 +12,7 @@
     "reminders:dev": "wrangler dev --config workers/reminders/wrangler.jsonc --local",
     "reminders:deploy": "wrangler deploy --config workers/reminders/wrangler.jsonc",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit"
   },
   "dependencies": {
     "@capacitor/core": "^8.0.0",

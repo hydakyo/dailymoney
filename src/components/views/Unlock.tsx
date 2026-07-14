@@ -111,7 +111,8 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
 
             const hashed = await hashPin(pin, settings.pinSalt);
             if (timingSafeEqual(hashed, settings.pinHash)) {
-              localStorage.removeItem("pin_failedAttempts");
+              localStorage.removeItem("pin_failedAttemptsInWindow");
+              localStorage.removeItem("pin_lockoutLevel");
               localStorage.removeItem("pin_lockoutUntil");
               onUnlocked();
             } else {

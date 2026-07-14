@@ -50,4 +50,9 @@ describe("encrypted backup", () => {
   it("rejects short passwords before encryption", async () => {
     await expect(encryptBackup(payloadV1, "ngan")).rejects.toThrow("ít nhất 10 ký tự");
   });
+
+  it("rejects malformed base64 metadata with a controlled error", async () => {
+    const encrypted = await encryptBackup(payloadV3, "mot-mat-khau-dai");
+    await expect(decryptBackup({ ...encrypted, kdf: { ...encrypted.kdf, salt: "A" } }, "mot-mat-khau-dai")).rejects.toThrow("Không thể mở backup");
+  });
 });
