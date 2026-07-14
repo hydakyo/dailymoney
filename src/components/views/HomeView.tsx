@@ -83,6 +83,14 @@ export function HomeView({
             {forecast.expectedInstallmentPeriods > 0 && (
               <small className="forecast-installments">Trả góp dự kiến: {formatVnd(forecast.expectedInstallments)} · bao gồm {forecast.expectedInstallmentPeriods} kỳ chưa thanh toán.</small>
             )}
+            {(forecast.expectedIncome > 0 || forecast.expectedRecurringExpense > 0 || forecast.projectedFlexibleExpense > 0) && (
+              <small className="forecast-installments">
+                Dòng tiền còn lại: {forecast.expectedIncome > 0 && `+${formatVnd(forecast.expectedIncome)} thu lặp`} {forecast.expectedRecurringExpense > 0 && ` · −${formatVnd(forecast.expectedRecurringExpense)} chi lặp`} {forecast.projectedFlexibleExpense > 0 && ` · −${formatVnd(forecast.projectedFlexibleExpense)} chi linh hoạt (${forecast.flexibleForecastSource === "history" ? "theo 3 tháng trước" : "theo tháng này"})`}.
+              </small>
+            )}
+            {forecast.flexibleForecastSource === "none" && forecast.expectedIncome === 0 && forecast.expectedRecurringExpense === 0 && (
+              <small className="forecast-installments">Chưa có lịch lặp hoặc dữ liệu chi tiêu để ước tính thêm.</small>
+            )}
           </div>
         </Card>
       )}

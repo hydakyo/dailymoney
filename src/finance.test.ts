@@ -89,6 +89,21 @@ describe("finance calculations", () => {
     expect(monthForecast({ balance: 0, month: "2026-06", transactions: [], rules: [], occurrences: [], installments: [], budgets: [], asOf: new Date(2026, 6, 14) })).toBeNull();
   });
 
+  it("forecasts future recurring entries and uses recent flexible spending when this month has no data", () => {
+    const forecast = monthForecast({
+      balance: 5_000_000,
+      month: "2026-07",
+      transactions: [transaction("expense", 91_000, "2026-06-01")],
+      rules: [rule({ amount: 400_000, nextDueDate: "2026-07-20" })],
+      occurrences: [],
+      installments: [],
+      budgets: [],
+      asOf: new Date(2026, 6, 14)
+    });
+
+    expect(forecast).toMatchObject({ expectedRecurringExpense: 400_000, projectedFlexibleExpense: 17_000, flexibleForecastSource: "history", projectedBalance: 4_583_000 });
+  });
+
   it("does not forecast a future installment period and finds the oldest missed period", () => {
     const installment = { id: "phone", name: "Phone", totalAmount: 3_000_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-08-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
     expect(installmentPeriods(installment)).toEqual(["2026-08", "2026-09", "2026-10"]);

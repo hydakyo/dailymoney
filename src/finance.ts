@@ -12,6 +12,7 @@ export type MonthForecast = {
   expectedInstallments: number;
   expectedInstallmentPeriods: number;
   projectedFlexibleExpense: number;
+  flexibleForecastSource: "current" | "history" | "none";
   remainingBudget: number;
   daysRemaining: number;
 };
@@ -152,25 +153,53 @@ export function monthForecast({
   const daysInMonth = new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate();
   const daysRemaining = Math.max(0, daysInMonth - asOf.getDate());
   const elapsedDays = Math.max(1, asOf.getDate());
-  const flexibleTransactions = transactions
-    .filter(transaction => transaction.kind === "expense" && transaction.date.startsWith(month) && !transaction.recurringRuleId && !transaction.installmentId && !transaction.debtPaymentId)
+  const isFlexibleExpense = (transaction: Transaction) => transaction.kind === "expense" && !transaction.recurringRuleId && !transaction.installmentId && !transaction.debtPaymentId;
+  const flexibleTransactions = transactions.filter(transaction => isFlexibleExpense(transaction) && transaction.date.startsWith(month));
   const budgetedCategoryIds = new Set(budgets.map(budget => budget.categoryId));
   const budgetedFlexibleExpense = flexibleTransactions.filter(transaction => budgetedCategoryIds.has(transaction.categoryId)).reduce((sum, transaction) => sum + transaction.amount, 0);
   const unbudgetedFlexibleExpense = flexibleTransactions.filter(transaction => !budgetedCategoryIds.has(transaction.categoryId)).reduce((sum, transaction) => sum + transaction.amount, 0);
+  const historyStart = new Date(Date.UTC(asOf.getFullYear(), asOf.getMonth() - 3, 1)).toISOString().slice(0, 10);
+  const monthStart = `${month}-01`;
+  const historyDays = Math.max(1, Math.round((Date.parse(`${monthStart}T00:00:00Z`) - Date.parse(`${historyStart}T00:00:00Z`)) / 86_400_000));
+  const historicalFlexibleTransactions = transactions.filter(transaction => isFlexibleExpense(transaction) && transaction.date >= historyStart && transaction.date < monthStart);
+  const historicalBudgetedExpense = historicalFlexibleTransactions.filter(transaction => budgetedCategoryIds.has(transaction.categoryId)).reduce((sum, transaction) => sum + transaction.amount, 0);
+  const historicalUnbudgetedExpense = historicalFlexibleTransactions.filter(transaction => !budgetedCategoryIds.has(transaction.categoryId)).reduce((sum, transaction) => sum + transaction.amount, 0);
   const remainingBudget = budgets.reduce((sum, budget) => sum + Math.max(0, budget.limit - budget.spent), 0);
-  const projectedBudgetedExpense = Math.min((budgetedFlexibleExpense / elapsedDays) * daysRemaining, remainingBudget);
-  const projectedUnbudgetedExpense = (unbudgetedFlexibleExpense / elapsedDays) * daysRemaining;
+  const currentFlexibleExpense = budgetedFlexibleExpense + unbudgetedFlexibleExpense;
+  const historicalFlexibleExpense = historicalBudgetedExpense + historicalUnbudgetedExpense;
+  const flexibleForecastSource = currentFlexibleExpense > 0 ? "current" : historicalFlexibleExpense > 0 ? "history" : "none";
+  const projectFlexibleExpense = (currentExpense: number, historicalExpense: number) =>
+    (currentExpense > 0 ? currentExpense / elapsedDays : historicalExpense / historyDays) * daysRemaining;
+  const projectedBudgetedExpense = Math.min(projectFlexibleExpense(budgetedFlexibleExpense, historicalBudgetedExpense), remainingBudget);
+  const projectedUnbudgetedExpense = projectFlexibleExpense(unbudgetedFlexibleExpense, historicalUnbudgetedExpense);
   const projectedFlexibleExpense = projectedBudgetedExpense + projectedUnbudgetedExpense;
 
   const ruleById = new Map(rules.map(rule => [rule.id, rule]));
+  const occurrenceByKey = new Map(occurrences.map(occurrence => [`${occurrence.ruleId}:${occurrence.dueDate}`, occurrence]));
+  const countedOccurrences = new Set<string>();
   let expectedIncome = 0;
   let expectedRecurringExpense = 0;
+  const includeRecurring = (rule: RecurringRule, dueDate: string) => {
+    const key = `${rule.id}:${dueDate}`;
+    if (countedOccurrences.has(key) || !rule.active || rule.kind === "transfer") return;
+    const occurrence = occurrenceByKey.get(key);
+    if (occurrence && occurrence.status !== "pending") return;
+    countedOccurrences.add(key);
+    if (rule.kind === "income") expectedIncome += rule.amount;
+    else expectedRecurringExpense += rule.amount;
+  };
   for (const occurrence of occurrences) {
     if (occurrence.status !== "pending" || !occurrence.dueDate.startsWith(month)) continue;
     const rule = ruleById.get(occurrence.ruleId);
-    if (!rule || !rule.active || rule.kind === "transfer") continue;
-    if (rule.kind === "income") expectedIncome += rule.amount;
-    else expectedRecurringExpense += rule.amount;
+    if (rule) includeRecurring(rule, occurrence.dueDate);
+  }
+  const monthEnd = `${month}-${String(daysInMonth).padStart(2, "0")}`;
+  for (const rule of rules) {
+    let dueDate = rule.nextDueDate;
+    while (dueDate <= monthEnd && (!rule.endDate || dueDate <= rule.endDate)) {
+      if (dueDate.startsWith(month)) includeRecurring(rule, dueDate);
+      dueDate = advanceDueDate(rule, dueDate);
+    }
   }
 
   let expectedInstallments = 0;
@@ -190,6 +219,7 @@ export function monthForecast({
     expectedInstallments,
     expectedInstallmentPeriods,
     projectedFlexibleExpense,
+    flexibleForecastSource,
     remainingBudget,
     daysRemaining
   };
