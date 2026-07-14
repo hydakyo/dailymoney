@@ -815,6 +815,16 @@ button:focus-visible, a:focus-visible {
 .cash-flow-action p { margin: 4px 0 0; color: var(--text-muted); line-height: 1.4; }
 .cash-flow-action.danger { border-left-color: var(--danger); background: var(--danger-bg); }
 .cash-flow-action.warning { border-left-color: var(--warning); background: var(--warning-bg); }
+.scenario-grid { display: grid; gap: 8px; }
+.scenario-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; display: grid; gap: 4px; background: var(--bg-card); }
+.scenario-card.at-risk { border-color: var(--danger); background: var(--danger-bg); }
+.scenario-card span, .scenario-card small { color: var(--text-muted); font-size: 12px; line-height: 1.35; }
+.scenario-card b { font-size: 15px; }
+.obligation-row span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.priority-tag { display: inline-flex; flex: 0 0 auto; padding: 2px 5px; border-radius: 999px; background: var(--bg-app); color: var(--text-muted); font-size: 10px; font-style: normal; font-weight: 700; }
+.priority-tag.essential { color: var(--danger); background: var(--danger-bg); }
+.priority-tag.high { color: var(--warning); background: var(--warning-bg); }
+.priority-tag.flexible { color: var(--text-muted); }
 
 
 

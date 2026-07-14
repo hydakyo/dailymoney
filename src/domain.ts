@@ -4,6 +4,7 @@ export type TransactionKind = "income" | "expense" | "transfer";
 export type EditableTransactionKind = Exclude<TransactionKind, "transfer">;
 export type DebtKind = "receivable" | "payable";
 export type Frequency = "daily" | "weekly" | "monthly" | "yearly";
+export type ObligationPriority = "essential" | "high" | "normal" | "flexible";
 
 export interface AppSettings {
   id: "settings";
@@ -83,6 +84,7 @@ export interface RecurringRule {
   startDate: string;
   nextDueDate: string;
   endDate?: string;
+  priority?: ObligationPriority;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -106,6 +108,7 @@ export interface Debt {
   openedDate: string;
   dueDate?: string;
   note?: string;
+  priority?: ObligationPriority;
   closedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -151,6 +154,7 @@ export interface Installment {
   totalMonths: number;
   startDate: string;
   dueDate: number; // Day of the month (1-31)
+  priority?: ObligationPriority;
   closedAt?: string;
   categoryId: string; // To categorize the monthly payment
   walletId: string;   // Where to deduct from when paid automatically/manually
@@ -296,6 +300,7 @@ export const RecurringRuleSchema = z.object({
   startDate: DateSchema,
   nextDueDate: DateSchema,
   endDate: DateSchema.optional(),
+  priority: z.enum(["essential", "high", "normal", "flexible"]).optional(),
   active: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -319,6 +324,7 @@ export const DebtSchema = z.object({
   openedDate: DateSchema,
   dueDate: DateSchema.optional(),
   note: z.string().trim().max(2000).optional(),
+  priority: z.enum(["essential", "high", "normal", "flexible"]).optional(),
   closedAt: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -364,6 +370,7 @@ export const InstallmentSchema = z.object({
   totalMonths: z.number().int().positive().max(1200),
   startDate: DateSchema,
   dueDate: z.number().int().min(1).max(31),
+  priority: z.enum(["essential", "high", "normal", "flexible"]).optional(),
   closedAt: z.string().optional(),
   categoryId: z.string().max(100),
   walletId: z.string().max(100),

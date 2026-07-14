@@ -133,6 +133,18 @@ describe("finance calculations", () => {
     expect(flow).toMatchObject({ endingBalance: 200_000, lowestBalance: -100_000, lowestBalanceDate: "2026-07-15", shortfall: 100_000 });
   });
 
+  it("uses a cautious scenario that discounts uncertain receivables and carries obligation priority", () => {
+    const debt: Debt = { id: "loan", kind: "receivable", person: "Bình", principal: 1_000_000, openedDate: "2026-06-01", dueDate: "2026-07-20", createdAt: "", updatedAt: "" };
+    const input = { balance: 100_000, month: "2026-07", transactions: [], occurrences: [], installments: [], budgets: [], debts: [debt], debtPayments: [], rules: [rule({ id: "rent", amount: 50_000, priority: "essential", nextDueDate: "2026-07-15" })], asOf: new Date(2026, 6, 14) };
+
+    const base = cashFlowForecast(input);
+    const cautious = cashFlowForecast({ ...input, scenario: { receivableMultiplier: 0.5 } });
+
+    expect(base?.endingBalance).toBe(1_050_000);
+    expect(cautious?.endingBalance).toBe(550_000);
+    expect(base?.events.find(event => event.kind === "recurring")?.priority).toBe("essential");
+  });
+
   it("does not forecast a future installment period and finds the oldest missed period", () => {
     const installment = { id: "phone", name: "Phone", totalAmount: 3_000_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-08-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
     expect(installmentPeriods(installment)).toEqual(["2026-08", "2026-09", "2026-10"]);

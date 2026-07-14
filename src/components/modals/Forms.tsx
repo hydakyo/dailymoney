@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Upload } from "lucide-react";
-import type { AppSettings, Budget, Category, Debt, EditableTransactionKind, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction } from "../../domain";
+import type { AppSettings, Budget, Category, Debt, EditableTransactionKind, GoalEntry, Installment, ObligationPriority, RecurringRule, SavingsGoal, Transaction } from "../../domain";
 import { formatVnd, newId, today } from "../../domain";
 import { isNativeApp } from "../../notifications";
 import { supportsWebPush } from "../../web-push";
@@ -123,6 +123,7 @@ export function DebtForm({ onSubmit, onClose }: { onSubmit: (value: Omit<Debt, "
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [note, setNote] = useState("");
+  const [priority, setPriority] = useState<ObligationPriority>("high");
   return (
     <Modal title="Khoản công nợ" onClose={onClose}>
       <div className="kind-switch">
@@ -132,9 +133,18 @@ export function DebtForm({ onSubmit, onClose }: { onSubmit: (value: Omit<Debt, "
       <label className="field"><span>Người liên quan</span><input value={person} onChange={event => setPerson(event.target.value)} placeholder="Tên người" /></label>
       <AmountInput label="Số tiền gốc" value={amount} onChange={setAmount} />
       <label className="field"><span>Hạn thanh toán <em>(không bắt buộc)</em></span><input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} /></label>
+      {kind === "payable" && <label className="field">
+        <span>Ưu tiên khi thiếu tiền</span>
+        <select value={priority} onChange={event => setPriority(event.target.value as ObligationPriority)}>
+          <option value="essential">Thiết yếu — cần bảo vệ trước</option>
+          <option value="high">Cao — nên thanh toán đúng hạn</option>
+          <option value="normal">Bình thường</option>
+          <option value="flexible">Linh hoạt — có thể thương lượng/dời</option>
+        </select>
+      </label>}
       <label className="field"><span>Ghi chú</span><input value={note} onChange={event => setNote(event.target.value)} /></label>
       <p className="form-note">Tạo khoản nợ không làm thay đổi số dư. Khi thu/trả mới tạo giao dịch.</p>
-      <button className="primary full" disabled={!person || !amount} onClick={() => void onSubmit({ kind, person, principal: Number(amount), openedDate: today(), dueDate: dueDate || undefined, note: note || undefined })}>Lưu khoản nợ</button>
+      <button className="primary full" disabled={!person || !amount} onClick={() => void onSubmit({ kind, person, principal: Number(amount), openedDate: today(), dueDate: dueDate || undefined, note: note || undefined, priority: kind === "payable" ? priority : undefined })}>Lưu khoản nợ</button>
     </Modal>
   );
 }
@@ -195,6 +205,7 @@ export function InstallmentForm({ categories, primaryWalletId, onSubmit, onClose
   const [startDate, setStartDate] = useState(today());
   const [dueDate, setDueDate] = useState("15");
   const [categoryId, setCategoryId] = useState("");
+  const [priority, setPriority] = useState<ObligationPriority>("high");
 
   const expenseCategories = categories.filter(c => c.kind === "expense" && !c.archived);
   
@@ -218,6 +229,15 @@ export function InstallmentForm({ categories, primaryWalletId, onSubmit, onClose
 
       <label className="field"><span>Ngày bắt đầu góp</span><input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} /></label>
       <label className="field"><span>Danh mục chi</span><select value={categoryId} onChange={event => setCategoryId(event.target.value)}>{expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+      <label className="field">
+        <span>Ưu tiên khi thiếu tiền</span>
+        <select value={priority} onChange={event => setPriority(event.target.value as ObligationPriority)}>
+          <option value="essential">Thiết yếu — cần bảo vệ trước</option>
+          <option value="high">Cao — nên thanh toán đúng hạn</option>
+          <option value="normal">Bình thường</option>
+          <option value="flexible">Linh hoạt — có thể thương lượng/dời</option>
+        </select>
+      </label>
       <p className="form-note">Mỗi tháng bạn sẽ trả: {totalAmount && totalMonths ? formatVnd(Number(totalAmount) / Number(totalMonths)) : "0 đ"}</p>
       
       <button className="primary full" disabled={!name || !totalAmount || !totalMonths || !categoryId} onClick={() => void onSubmit({ 
@@ -227,6 +247,7 @@ export function InstallmentForm({ categories, primaryWalletId, onSubmit, onClose
         totalMonths: Number(totalMonths), 
         startDate, 
         dueDate: Number(dueDate), 
+        priority,
         categoryId, 
         walletId: primaryWalletId
       })}>
@@ -242,6 +263,7 @@ export function RecurringForm({ categories, primaryWalletId, onSubmit, onClose }
   const [categoryId, setCategoryId] = useState("");
   const [frequency, setFrequency] = useState<RecurringRule["frequency"]>("monthly");
   const [date, setDate] = useState(today());
+  const [priority, setPriority] = useState<ObligationPriority>("normal");
   const relevant = React.useMemo(() => categories.filter(category => category.kind === kind && !category.archived), [categories, kind]);
   React.useEffect(() => {
     if (!relevant.some(category => category.id === categoryId)) setCategoryId(relevant[0]?.id ?? "");
@@ -264,7 +286,16 @@ export function RecurringForm({ categories, primaryWalletId, onSubmit, onClose }
         </select>
       </label>
       <label className="field"><span>Ngày bắt đầu</span><input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
-      <button className="primary full" disabled={!amount || !categoryId} onClick={() => void onSubmit({ kind, amount: Number(amount), categoryId, walletId: primaryWalletId, frequency, interval: 1, dayOfMonth: Number(date.slice(-2)), startDate: date, nextDueDate: date })}>Tạo lịch lặp</button>
+      {kind === "expense" && <label className="field">
+        <span>Ưu tiên khi thiếu tiền</span>
+        <select value={priority} onChange={event => setPriority(event.target.value as ObligationPriority)}>
+          <option value="essential">Thiết yếu — cần bảo vệ trước</option>
+          <option value="high">Cao — nên thanh toán đúng hạn</option>
+          <option value="normal">Bình thường</option>
+          <option value="flexible">Linh hoạt — có thể thương lượng/dời</option>
+        </select>
+      </label>}
+      <button className="primary full" disabled={!amount || !categoryId} onClick={() => void onSubmit({ kind, amount: Number(amount), categoryId, walletId: primaryWalletId, frequency, interval: 1, dayOfMonth: Number(date.slice(-2)), startDate: date, nextDueDate: date, priority: kind === "expense" ? priority : undefined })}>Tạo lịch lặp</button>
     </Modal>
   );
 }

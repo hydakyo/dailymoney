@@ -43,6 +43,9 @@ describe("adaptive smart plan", () => {
     expect(food?.suggestedLimit).toBeGreaterThan(shopping?.suggestedLimit ?? 0);
     expect(plan.needsTotal).toBe(food?.suggestedLimit);
     expect(plan.wantsTotal).toBe(shopping?.suggestedLimit);
+    expect(plan.scenarios.map(scenario => scenario.id)).toEqual(["base", "cautious", "rescue"]);
+    expect(plan.scenarios[1].endingBalance).toBeLessThan(plan.scenarios[0].endingBalance);
+    expect(plan.upcomingObligations[0]).toMatchObject({ priority: "high", priorityLabel: "Cao" });
   });
 
   it("creates an urgent recovery plan when cash is short before a later income arrives", () => {

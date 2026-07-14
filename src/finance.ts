@@ -1,4 +1,4 @@
-import type { Budget, Category, Debt, DebtPayment, GoalEntry, Installment, RecurringOccurrence, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
+import type { Budget, Category, Debt, DebtPayment, GoalEntry, Installment, ObligationPriority, RecurringOccurrence, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 
 export type BudgetProgressItem = Budget & {
   spent: number;
@@ -15,6 +15,7 @@ export type MonthForecast = {
   expectedDebtRepayments: number;
   projectedFlexibleExpense: number;
   flexibleForecastSource: "current" | "history" | "none";
+  behaviorConfidence: "low" | "medium" | "high";
   remainingBudget: number;
   daysRemaining: number;
 };
@@ -24,6 +25,7 @@ export type CashFlowEvent = {
   amount: number;
   label: string;
   kind: "income" | "recurring" | "installment" | "debt" | "flexible";
+  priority?: ObligationPriority;
 };
 
 export type CashFlowForecast = {
@@ -32,7 +34,13 @@ export type CashFlowForecast = {
   lowestBalanceDate: string | null;
   shortfall: number;
   dailyFlexibleAllowance: number;
+  flexibleExpenseForecast: number;
   events: CashFlowEvent[];
+};
+
+export type CashFlowScenario = {
+  flexibleExpenseMultiplier?: number;
+  receivableMultiplier?: number;
 };
 
 export function installmentPeriods(installment: Installment) {
@@ -217,6 +225,8 @@ export function monthForecast({
   }
   for (const remaining of remainingBudgetByCategory.values()) remainingBudget += remaining;
   const flexibleForecastSource = currentFlexibleTransactions.length ? "current" : historicalFlexibleTransactions.length ? "history" : "none";
+  const historyTransactionCount = historicalFlexibleTransactions.length;
+  const behaviorConfidence = historyTransactionCount >= 24 ? "high" : historyTransactionCount >= 8 ? "medium" : "low";
 
   const ruleById = new Map(rules.map(rule => [rule.id, rule]));
   const occurrenceByKey = new Map(occurrences.map(occurrence => [`${occurrence.ruleId}:${occurrence.dueDate}`, occurrence]));
@@ -275,6 +285,7 @@ export function monthForecast({
     expectedDebtRepayments,
     projectedFlexibleExpense,
     flexibleForecastSource,
+    behaviorConfidence,
     remainingBudget,
     daysRemaining
   };
@@ -291,6 +302,7 @@ export function cashFlowForecast(input: {
   debts?: Debt[];
   debtPayments?: DebtPayment[];
   asOf?: Date;
+  scenario?: CashFlowScenario;
 }): CashFlowForecast | null {
   const asOf = input.asOf ?? new Date();
   const forecast = monthForecast({ ...input, asOf });
@@ -299,6 +311,8 @@ export function cashFlowForecast(input: {
   const currentMonth = `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, "0")}`;
   const asOfDate = `${currentMonth}-${String(asOf.getDate()).padStart(2, "0")}`;
   const monthEnd = `${currentMonth}-${String(new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate()).padStart(2, "0")}`;
+  const flexibleExpenseMultiplier = Math.max(0, input.scenario?.flexibleExpenseMultiplier ?? 1);
+  const receivableMultiplier = Math.min(1, Math.max(0, input.scenario?.receivableMultiplier ?? 1));
   const events: CashFlowEvent[] = [];
   const addEvent = (event: CashFlowEvent) => events.push({ ...event, date: event.date < asOfDate ? asOfDate : event.date });
   const ruleById = new Map(input.rules.map(rule => [rule.id, rule]));
@@ -310,7 +324,7 @@ export function cashFlowForecast(input: {
     const occurrence = occurrenceByKey.get(key);
     if (occurrence && occurrence.status !== "pending") return;
     countedOccurrences.add(key);
-    addEvent({ date: dueDate, amount: rule.kind === "income" ? rule.amount : -rule.amount, label: rule.note || "Giao dịch lặp", kind: rule.kind === "income" ? "income" : "recurring" });
+    addEvent({ date: dueDate, amount: rule.kind === "income" ? rule.amount : -rule.amount, label: rule.note || "Giao dịch lặp", kind: rule.kind === "income" ? "income" : "recurring", priority: rule.kind === "expense" ? rule.priority ?? "normal" : undefined });
   };
   for (const occurrence of input.occurrences) {
     if (occurrence.status !== "pending" || !occurrence.dueDate.startsWith(currentMonth)) continue;
@@ -331,7 +345,7 @@ export function cashFlowForecast(input: {
     for (const period of installmentPeriods(installment)) {
       if (period > currentMonth || paidPeriods.has(period)) continue;
       const day = String(Math.min(installment.dueDate, Number(monthEnd.slice(-2)))).padStart(2, "0");
-      addEvent({ date: period < currentMonth ? asOfDate : `${period}-${day}`, amount: -installment.monthlyAmount, label: `Trả góp: ${installment.name}`, kind: "installment" });
+      addEvent({ date: period < currentMonth ? asOfDate : `${period}-${day}`, amount: -installment.monthlyAmount, label: `Trả góp: ${installment.name}`, kind: "installment", priority: installment.priority ?? "high" });
     }
   }
 
@@ -339,16 +353,20 @@ export function cashFlowForecast(input: {
     if (debt.closedAt || !debt.dueDate || debt.dueDate > monthEnd) continue;
     const outstanding = debtOutstanding(debt, input.debtPayments ?? []);
     if (!outstanding) continue;
+    const adjustedOutstanding = debt.kind === "receivable" ? outstanding * receivableMultiplier : outstanding;
+    if (!adjustedOutstanding) continue;
     addEvent({
       date: debt.dueDate,
-      amount: debt.kind === "receivable" ? outstanding : -outstanding,
+      amount: debt.kind === "receivable" ? adjustedOutstanding : -adjustedOutstanding,
       label: debt.kind === "receivable" ? `Thu nợ: ${debt.person}` : `Trả nợ: ${debt.person}`,
-      kind: "debt"
+      kind: "debt",
+      priority: debt.kind === "payable" ? debt.priority ?? "high" : undefined
     });
   }
 
-  if (forecast.projectedFlexibleExpense > 0 && forecast.daysRemaining > 0) {
-    const dailyAmount = forecast.projectedFlexibleExpense / forecast.daysRemaining;
+  const flexibleExpenseForecast = forecast.projectedFlexibleExpense * flexibleExpenseMultiplier;
+  if (flexibleExpenseForecast > 0 && forecast.daysRemaining > 0) {
+    const dailyAmount = flexibleExpenseForecast / forecast.daysRemaining;
     for (let date = new Date(Date.UTC(asOf.getFullYear(), asOf.getMonth(), asOf.getDate() + 1)); date.toISOString().slice(0, 10) <= monthEnd; date.setUTCDate(date.getUTCDate() + 1)) {
       addEvent({ date: date.toISOString().slice(0, 10), amount: -dailyAmount, label: "Chi linh hoạt dự kiến", kind: "flexible" });
     }
@@ -372,7 +390,8 @@ export function cashFlowForecast(input: {
     lowestBalance,
     lowestBalanceDate,
     shortfall,
-    dailyFlexibleAllowance: forecast.daysRemaining ? Math.max(0, forecast.projectedFlexibleExpense - Math.max(shortfall, Math.max(0, -forecast.projectedBalance))) / forecast.daysRemaining : 0,
+    dailyFlexibleAllowance: forecast.daysRemaining ? Math.max(0, flexibleExpenseForecast - Math.max(shortfall, Math.max(0, -runningBalance))) / forecast.daysRemaining : 0,
+    flexibleExpenseForecast,
     events
   };
 }

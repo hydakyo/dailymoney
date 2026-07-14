@@ -19,6 +19,7 @@ export function SmartPlanModal({
 }) {
   const plan = generateSmartPlan(data, month);
   const [applying, setApplying] = useState(false);
+  const confidenceLabel = { low: "Đang học", medium: "Khá tin cậy", high: "Tin cậy" }[plan.behaviorConfidence];
 
   const handleApply = async () => {
     setApplying(true);
@@ -54,7 +55,7 @@ export function SmartPlanModal({
         <div className="advisor-header">
           <BrainCircuit size={40} className="text-primary" />
           <p>
-            Dựa trên forecast, nghĩa vụ đến hạn và thói quen chi thực tế của bạn trong tháng <strong>{month.split("-")[1]}</strong>. Không dùng tỷ lệ 50/30/20 cố định.
+            Dựa trên forecast, nghĩa vụ đến hạn và thói quen chi thực tế của bạn trong tháng <strong>{month.split("-")[1]}</strong>. Không dùng tỷ lệ 50/30/20 cố định. Dữ liệu thói quen: <strong>{confidenceLabel}</strong>.
           </p>
         </div>
 
@@ -77,8 +78,23 @@ export function SmartPlanModal({
             <strong>{formatVnd(plan.flexibleAllowance)}</strong>
           </div>
           <div className={plan.shortfall > 0 ? "row-between text-danger" : "row-between"}>
-            <span>Điểm đáy dòng tiền:</span>
+            <span>Điểm đáy thận trọng:</span>
             <strong>{formatVnd(plan.lowestBalance)}{plan.lowestBalanceDate ? ` · ${plan.lowestBalanceDate}` : ""}</strong>
+          </div>
+        </div>
+
+        <div className="plan-breakdown">
+          <h4>Ba kịch bản cuối tháng</h4>
+          <p className="hint">Kế hoạch áp dụng kịch bản thận trọng để không chi dựa vào khoản phải thu chưa chắc chắn.</p>
+          <div className="scenario-grid">
+            {plan.scenarios.map(scenario => (
+              <div className={`scenario-card ${scenario.shortfall > 0 ? "at-risk" : ""}`} key={scenario.id}>
+                <strong>{scenario.label}</strong>
+                <span>{scenario.description}</span>
+                <b className={scenario.endingBalance < 0 ? "text-danger" : "text-success"}>{formatVnd(scenario.endingBalance)}</b>
+                <small>Đáy: {formatVnd(scenario.lowestBalance)}{scenario.lowestBalanceDate ? ` · ${scenario.lowestBalanceDate}` : ""}</small>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -93,8 +109,8 @@ export function SmartPlanModal({
           {plan.dailyFlexibleCap > 0 && <p className="hint">Mức chi linh hoạt an toàn tối đa: {formatVnd(plan.dailyFlexibleCap)} mỗi ngày.</p>}
           {plan.upcomingObligations.length > 0 && (
             <div className="breakdown-section">
-              <strong>Nghĩa vụ sắp tới</strong>
-              {plan.upcomingObligations.map(item => <div className="row-between" key={`${item.date}:${item.label}`}><span>{item.date} · {item.label}</span><strong>-{formatVnd(item.amount)}</strong></div>)}
+              <strong>Thứ tự nghĩa vụ cần bảo vệ</strong>
+              {plan.upcomingObligations.map(item => <div className="row-between obligation-row" key={`${item.date}:${item.label}`}><span><em className={`priority-tag ${item.priority}`}>{item.priorityLabel}</em>{item.date} · {item.label}</span><strong>-{formatVnd(item.amount)}</strong></div>)}
             </div>
           )}
         </div>
