@@ -184,6 +184,15 @@ describe("finance calculations", () => {
     expect(base?.events.find(event => event.kind === "recurring")?.priority).toBe("essential");
   });
 
+  it("applies per-debt collection confidence before forecasting a receivable", () => {
+    const debt: Debt = { id: "loan", kind: "receivable", person: "Bình", principal: 1_000_000, openedDate: "2026-06-01", dueDate: "2026-07-20", collectionConfidence: "uncertain", createdAt: "", updatedAt: "" };
+    const input = { balance: 0, month: "2026-07", transactions: [], occurrences: [], installments: [], budgets: [], debts: [debt], debtPayments: [], rules: [], asOf: new Date(2026, 6, 14) };
+
+    expect(monthForecast(input)?.expectedDebtReceivables).toBe(500_000);
+    expect(cashFlowForecast(input)?.endingBalance).toBe(500_000);
+    expect(cashFlowForecast({ ...input, scenario: { receivableMultiplier: 0.5 } })?.endingBalance).toBe(250_000);
+  });
+
   it("does not forecast a future installment period and finds the oldest missed period", () => {
     const installment = { id: "phone", name: "Phone", totalAmount: 3_000_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-08-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
     expect(installmentPeriods(installment)).toEqual(["2026-08", "2026-09", "2026-10"]);

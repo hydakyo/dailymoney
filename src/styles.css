@@ -645,6 +645,9 @@ button:focus-visible, a:focus-visible {
   margin: 0 0 10px;
 }
 .category-manage-row select { flex: 0 1 112px; min-width: 0; padding: 6px; font-size: 12px; }
+.compact-field { margin: 8px 0; }
+.compact-field span { font-size: 12px; }
+.compact-field select { padding: 8px 10px; font-size: 13px; }
 
 .file-field {
   display: flex;

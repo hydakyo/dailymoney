@@ -85,6 +85,13 @@ export function oldestUnpaidInstallmentPeriod(installment: Installment, transact
   return installmentPeriods(installment).find(period => !paidPeriods.has(period));
 }
 
+export function collectionConfidenceMultiplier(debt: Debt) {
+  if (debt.kind !== "receivable") return 1;
+  if (debt.collectionConfidence === "uncertain") return 0.5;
+  if (debt.collectionConfidence === "likely") return 0.8;
+  return 1;
+}
+
 export function normalizeInstallmentPayments(transactions: Transaction[], installments: Installment[]) {
   const normalized = transactions.map(transaction => ({ ...transaction }));
   const installmentsById = new Map(installments.map(installment => [installment.id, installment]));
@@ -303,7 +310,7 @@ export function monthForecast({
   for (const debt of debts) {
     if (debt.closedAt || !debt.dueDate || debt.dueDate > monthEnd) continue;
     const outstanding = debtOutstanding(debt, debtPayments);
-    if (debt.kind === "receivable") expectedDebtReceivables += outstanding;
+    if (debt.kind === "receivable") expectedDebtReceivables += outstanding * collectionConfidenceMultiplier(debt);
     else expectedDebtRepayments += outstanding;
   }
 
@@ -369,7 +376,7 @@ export function cashFlowForecast(input: CashFlowForecastInput): CashFlowForecast
     if (debt.closedAt || !debt.dueDate || debt.dueDate > monthEnd) continue;
     const outstanding = debtOutstanding(debt, input.debtPayments ?? []);
     if (!outstanding) continue;
-    const adjustedOutstanding = debt.kind === "receivable" ? outstanding * receivableMultiplier : outstanding;
+    const adjustedOutstanding = debt.kind === "receivable" ? outstanding * collectionConfidenceMultiplier(debt) * receivableMultiplier : outstanding;
     if (!adjustedOutstanding) continue;
     addEvent({
       date: debt.dueDate,

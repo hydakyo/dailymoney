@@ -6,6 +6,7 @@ export type DebtKind = "receivable" | "payable";
 export type Frequency = "daily" | "weekly" | "monthly" | "yearly";
 export type ObligationPriority = "essential" | "high" | "normal" | "flexible";
 export type FinancialClass = "essential" | "discretionary";
+export type CollectionConfidence = "certain" | "likely" | "uncertain";
 
 export interface AppSettings {
   id: "settings";
@@ -111,6 +112,7 @@ export interface Debt {
   dueDate?: string;
   note?: string;
   priority?: ObligationPriority;
+  collectionConfidence?: CollectionConfidence;
   closedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -328,6 +330,7 @@ export const DebtSchema = z.object({
   dueDate: DateSchema.optional(),
   note: z.string().trim().max(2000).optional(),
   priority: z.enum(["essential", "high", "normal", "flexible"]).optional(),
+  collectionConfidence: z.enum(["certain", "likely", "uncertain"]).optional(),
   closedAt: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),

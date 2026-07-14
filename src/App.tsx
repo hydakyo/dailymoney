@@ -328,6 +328,7 @@ export default function App() {
               await refresh();
             }}
             onPay={id => { setSelectedDebtId(id); setModal("payment"); }}
+            onUpdateDebt={async (id, patch) => { await db.debts.update(id, { ...patch, updatedAt: new Date().toISOString() }); await refresh(); }}
             onContribute={id => { setSelectedGoalId(id); setModal("goal-entry"); }}
             onToggleRule={async rule => { await db.recurringRules.update(rule.id, { active: !rule.active, updatedAt: new Date().toISOString() }); await refresh(); }}
             onDeleteBudget={async id => { await db.budgets.delete(id); await refresh(); }}

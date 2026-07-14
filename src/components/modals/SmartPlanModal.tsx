@@ -119,7 +119,7 @@ export function SmartPlanModal({
               <p>{action.detail}</p>
             </div>
           ))}
-          {plan.dailyFlexibleCap > 0 && <p className="hint">Mức chi linh hoạt an toàn tối đa: {formatVnd(plan.dailyFlexibleCap)} mỗi ngày.</p>}
+          {plan.dailyFlexibleCap > 0 && <p className="hint">Mức chi linh hoạt đề xuất an toàn: {formatVnd(plan.dailyFlexibleCap)} mỗi ngày.</p>}
           {plan.upcomingObligations.length > 0 && (
             <div className="breakdown-section">
               <strong>Thứ tự nghĩa vụ cần bảo vệ</strong>

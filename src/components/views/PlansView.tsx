@@ -1,5 +1,5 @@
 import { Plus, Trash2, Landmark, HandCoins, Goal, CalendarDays, Smartphone, Copy } from "lucide-react";
-import type { Category, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction } from "../../domain";
+import type { Category, CollectionConfidence, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction } from "../../domain";
 import { formatVnd, today } from "../../domain";
 import { debtOutstanding, goalBalance, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "../../finance";
 import type { BudgetProgressItem } from "../../finance";
@@ -22,6 +22,7 @@ export function PlansView({
   transactions,
   onAdd,
   onPay,
+  onUpdateDebt,
   onContribute,
   onSmartPlan,
   canUseSmartPlan,
@@ -50,6 +51,7 @@ export function PlansView({
   canUseSmartPlan: boolean;
   onCopyPreviousBudgets: () => Promise<void>;
   onPay: (debtId: string) => void;
+  onUpdateDebt: (debtId: string, patch: Pick<Debt, "collectionConfidence">) => Promise<void>;
   onContribute: (id: string) => void;
   onToggleRule: (rule: RecurringRule) => Promise<void>;
   onDeleteBudget: (id: string) => Promise<void>;
@@ -222,6 +224,7 @@ export function PlansView({
                   <p>
                     Còn {formatVnd(outstanding)} / {formatVnd(item.principal)}
                   </p>
+                  {item.kind === "receivable" && <label className="field compact-field"><span>Mức chắc chắn thu nợ</span><select value={item.collectionConfidence ?? "certain"} onChange={event => void onUpdateDebt(item.id, { collectionConfidence: event.target.value as CollectionConfidence })}><option value="certain">Chắc chắn</option><option value="likely">Khả năng cao</option><option value="uncertain">Chưa chắc</option></select></label>}
                   <div className="plan-actions">
                     {!item.closedAt && (
                       <button className="soft" onClick={() => onPay(item.id)}>

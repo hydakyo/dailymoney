@@ -242,9 +242,13 @@ export function generateAdvice(data: AppData, currentMonth: string): Advice[] {
     });
   }
 
+  const visibleAdvices = flowScenarios?.base.shortfall
+    ? advices.filter(advice => advice.level !== "success")
+    : advices;
+
   // Ưu tiên hiển thị: danger -> warning -> success -> info
   const weight = { danger: 4, warning: 3, success: 2, info: 1 };
-  advices.sort((a, b) => weight[b.level] - weight[a.level]);
+  visibleAdvices.sort((a, b) => weight[b.level] - weight[a.level]);
 
-  return advices;
+  return visibleAdvices;
 }

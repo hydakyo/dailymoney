@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Upload } from "lucide-react";
-import type { AppSettings, Budget, Category, Debt, EditableTransactionKind, FinancialClass, GoalEntry, Installment, ObligationPriority, RecurringRule, SavingsGoal, Transaction } from "../../domain";
+import type { AppSettings, Budget, Category, CollectionConfidence, Debt, EditableTransactionKind, FinancialClass, GoalEntry, Installment, ObligationPriority, RecurringRule, SavingsGoal, Transaction } from "../../domain";
 import { formatVnd, newId, today } from "../../domain";
 import { isNativeApp } from "../../notifications";
 import { supportsWebPush } from "../../web-push";
@@ -124,6 +124,7 @@ export function DebtForm({ onSubmit, onClose }: { onSubmit: (value: Omit<Debt, "
   const [dueDate, setDueDate] = useState("");
   const [note, setNote] = useState("");
   const [priority, setPriority] = useState<ObligationPriority>("high");
+  const [collectionConfidence, setCollectionConfidence] = useState<CollectionConfidence>("likely");
   return (
     <Modal title="Khoản công nợ" onClose={onClose}>
       <div className="kind-switch">
@@ -142,9 +143,17 @@ export function DebtForm({ onSubmit, onClose }: { onSubmit: (value: Omit<Debt, "
           <option value="flexible">Linh hoạt — có thể thương lượng/dời</option>
         </select>
       </label>}
+      {kind === "receivable" && <label className="field">
+        <span>Mức chắc chắn sẽ thu được</span>
+        <select value={collectionConfidence} onChange={event => setCollectionConfidence(event.target.value as CollectionConfidence)}>
+          <option value="certain">Chắc chắn — dự kiến đủ tiền đúng hạn</option>
+          <option value="likely">Khả năng cao — vẫn cần dự phòng</option>
+          <option value="uncertain">Chưa chắc — có thể trả trễ/tranh chấp</option>
+        </select>
+      </label>}
       <label className="field"><span>Ghi chú</span><input value={note} onChange={event => setNote(event.target.value)} /></label>
       <p className="form-note">Tạo khoản nợ không làm thay đổi số dư. Khi thu/trả mới tạo giao dịch.</p>
-      <button className="primary full" disabled={!person || !amount} onClick={() => void onSubmit({ kind, person, principal: Number(amount), openedDate: today(), dueDate: dueDate || undefined, note: note || undefined, priority: kind === "payable" ? priority : undefined })}>Lưu khoản nợ</button>
+      <button className="primary full" disabled={!person || !amount} onClick={() => void onSubmit({ kind, person, principal: Number(amount), openedDate: today(), dueDate: dueDate || undefined, note: note || undefined, priority: kind === "payable" ? priority : undefined, collectionConfidence: kind === "receivable" ? collectionConfidence : undefined })}>Lưu khoản nợ</button>
     </Modal>
   );
 }
