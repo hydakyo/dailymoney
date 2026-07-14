@@ -74,8 +74,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     ]);
     
     const activeRules = rules.filter(rule => rule.active);
-    const creates = activeRules.flatMap(rule => 
-      dueOccurrences(rule, occurrences, today()).occurrences.map(occurrence => ({ 
+    const dueByRule = activeRules.map(rule => ({ rule, result: dueOccurrences(rule, occurrences, today()) }));
+    const creates = dueByRule.flatMap(({ result }) =>
+      result.occurrences.map(occurrence => ({
         ...occurrence, 
         createdAt: new Date().toISOString(), 
         updatedAt: new Date().toISOString() 
@@ -83,12 +84,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     );
     
     if (creates.length) {
-      await db.recurringOccurrences.bulkAdd(creates);
+      // IDs are deterministic (rule:date), so concurrent refreshes remain idempotent.
+      await db.recurringOccurrences.bulkPut(creates);
     }
     
-    if (activeRules.length) {
-      await Promise.all(activeRules.map(async rule => {
-        const nextDueDate = dueOccurrences(rule, occurrences, today()).nextDueDate;
+    if (dueByRule.length) {
+      await Promise.all(dueByRule.map(async ({ rule, result }) => {
+        const { nextDueDate } = result;
         if (nextDueDate !== rule.nextDueDate) {
           await db.recurringRules.update(rule.id, { nextDueDate, updatedAt: new Date().toISOString() });
         }
@@ -96,8 +98,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
     
     const finalOccurrences = creates.length ? await db.recurringOccurrences.toArray() : occurrences;
+    const nextDueDates = new Map(dueByRule.map(({ rule, result }) => [rule.id, result.nextDueDate]));
+    const finalRules = rules.map(rule => nextDueDates.has(rule.id) ? { ...rule, nextDueDate: nextDueDates.get(rule.id)! } : rule);
     
-    const newData = { settings, wallets, categories, transactions, budgets, rules, occurrences: finalOccurrences, debts, payments, goals, goalEntries, installments };
+    const newData = { settings, wallets, categories, transactions, budgets, rules: finalRules, occurrences: finalOccurrences, debts, payments, goals, goalEntries, installments };
     
     set((state) => ({
       data: newData,
