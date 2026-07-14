@@ -10,8 +10,6 @@ type TransactionInput = {
   kind: Transaction["kind"];
   amount: number;
   categoryId: string;
-  walletId: string;
-  toWalletId?: string;
   date: string;
   note?: string;
   recurring?: { frequency: RecurringRule["frequency"]; interval: number; dayOfMonth?: number };
@@ -26,22 +24,17 @@ type SpeechRecognizerConstructor = new () => SpeechRecognizer;
 export function VoiceTransactionForm({
   transaction,
   categories,
-  wallets,
   onSubmit,
   onClose
 }: {
   transaction?: Transaction;
   categories: Category[];
-  wallets: Wallet[];
   onSubmit: (value: TransactionInput) => Promise<void>;
   onClose: () => void;
 }) {
-  const activeWallets = useMemo(() => wallets.filter(wallet => !wallet.archived), [wallets]);
   const [kind, setKind] = useState<Transaction["kind"]>(transaction?.kind ?? "expense");
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : "");
   const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? "");
-  const [walletId, setWalletId] = useState(transaction?.walletId ?? activeWallets[0]?.id ?? "");
-  const [toWalletId, setToWalletId] = useState(transaction?.toWalletId ?? activeWallets.find(wallet => wallet.id !== walletId)?.id ?? "");
   const [date, setDate] = useState(transaction?.date ?? today());
   const [note, setNote] = useState(transaction?.note ?? "");
   const [recurring, setRecurring] = useState(false);
@@ -64,12 +57,6 @@ export function VoiceTransactionForm({
       setCategoryId(relevant[0]?.id ?? "");
     }
   }, [categoryId, relevant, kind]);
-
-  useEffect(() => {
-    if (!activeWallets.some(wallet => wallet.id === toWalletId) || toWalletId === walletId) {
-      setToWalletId(activeWallets.find(wallet => wallet.id !== walletId)?.id ?? "");
-    }
-  }, [activeWallets, toWalletId, walletId]);
 
   useEffect(() => () => recognitionRef.current?.abort(), []);
 
@@ -190,7 +177,6 @@ export function VoiceTransactionForm({
         <div className="kind-switch">
           <button className={kind === "expense" ? "selected expense-bg" : ""} onClick={() => setKind("expense")}>Chi tiền</button>
           <button className={kind === "income" ? "selected income-bg" : ""} onClick={() => setKind("income")}>Thu tiền</button>
-          {activeWallets.length > 1 && <button className={kind === "transfer" ? "selected primary-bg" : ""} onClick={() => setKind("transfer")}>Chuyển ví</button>}
         </div>
 
         <label className="field">
@@ -198,38 +184,12 @@ export function VoiceTransactionForm({
           <input inputMode="numeric" placeholder="0" value={amount} onChange={event => setAmount(event.target.value.replace(/\D/g, ""))} />
         </label>
 
-        {kind === "transfer" ? (
-          <div className="stat-grid" style={{ gap: 8, marginBottom: 12 }}>
-            <label className="field" style={{ marginBottom: 0 }}>
-              <span>Từ Ví</span>
-              <select value={walletId} onChange={e => setWalletId(e.target.value)}>
-                {activeWallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
-            </label>
-            <label className="field" style={{ marginBottom: 0 }}>
-              <span>Đến Ví</span>
-              <select value={toWalletId} onChange={e => setToWalletId(e.target.value)}>
-                {activeWallets.filter(wallet => wallet.id !== walletId).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
-            </label>
-          </div>
-        ) : (
-          <>
-            <label className="field">
-              <span>Ví giao dịch</span>
-              <select value={walletId} onChange={e => setWalletId(e.target.value)}>
-                {activeWallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
-            </label>
-            <label className="field">
-              <span>Danh mục</span>
-              <select value={categoryId} onChange={event => setCategoryId(event.target.value)}>
-                {relevant.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
-              </select>
-            </label>
-          </>
-        )}
-
+        <label className="field">
+          <span>Danh mục</span>
+          <select value={categoryId} onChange={event => setCategoryId(event.target.value)}>
+            {relevant.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+        </label>
         <label className="field">
           <span>Ngày</span>
           <input type="date" value={date} onChange={event => setDate(event.target.value)} />
@@ -237,7 +197,7 @@ export function VoiceTransactionForm({
 
         <label className="field">
           <span>Ghi chú <em>(không bắt buộc)</em></span>
-          <input value={note} onChange={event => setNote(event.target.value)} placeholder={kind === "transfer" ? "Ví dụ: Chuyển tiền tiêu vặt" : "Ví dụ: cà phê sáng"} />
+          <input value={note} onChange={event => setNote(event.target.value)} placeholder="Ví dụ: cà phê sáng" />
         </label>
 
         {!transaction && (
@@ -261,14 +221,12 @@ export function VoiceTransactionForm({
 
         <button 
           className="primary full" 
-          disabled={!amount || (kind !== "transfer" && !categoryId) || (kind === "transfer" && walletId === toWalletId) || listening} 
+          disabled={!amount || !categoryId || listening} 
           onClick={() => void onSubmit({ 
             id: transaction?.id, 
             kind, 
             amount: Number(amount), 
-            categoryId: kind === "transfer" ? "transfer" : categoryId, 
-            walletId,
-            toWalletId: kind === "transfer" ? toWalletId : undefined,
+            categoryId,
             date, 
             note: note || undefined, 
             recurring: recurring ? { frequency, interval: 1, dayOfMonth: Number(date.slice(-2)) } : undefined 

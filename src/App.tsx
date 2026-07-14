@@ -22,7 +22,6 @@ import { hashPin, toBase64 } from "./utils";
 import { generateAdvice } from "./advisor";
 import { BackupForm, BudgetForm, CategoryManager, DebtForm, DebtPaymentForm, GoalEntryForm, GoalForm, InstallmentForm, OpeningBalanceForm, PinForm, RecurringForm, ReminderForm, RestoreForm } from "./components/modals/Forms";
 import { SmartPlanModal } from "./components/modals/SmartPlanModal";
-import { WalletManager } from "./components/modals/WalletManager";
 
 type Tab = "home" | "transactions" | "plans" | "reports" | "settings";
 type PlanSection = "budgets" | "debts" | "goals" | "installments" | "recurring";
@@ -31,8 +30,6 @@ type TransactionInput = {
   kind: Transaction["kind"];
   amount: number;
   categoryId: string;
-  walletId: string;
-  toWalletId?: string;
   date: string;
   note?: string;
   recurring?: { frequency: RecurringRule["frequency"]; interval: number; dayOfMonth?: number };
@@ -49,7 +46,7 @@ export default function App() {
     | "transaction" | "budget" | "debt" | "payment" | "goal" | "goal-entry"
     | "installment"
     | "recurring" | "backup" | "restore" | "pin" | "categories"
-    | "opening-balance" | "wallets" | "reminder" | "smart-plan" | null
+    | "opening-balance" | "reminder" | "smart-plan" | null
   >(null);
   
   const [selectedDebtId, setSelectedDebtId] = useState<string | null>(null);
@@ -102,8 +99,6 @@ export default function App() {
         kind: input.kind,
         amount: input.amount,
         categoryId: input.categoryId,
-        walletId: input.walletId,
-        toWalletId: input.toWalletId,
         date: input.date,
         note: input.note,
         updatedAt: now
@@ -120,8 +115,7 @@ export default function App() {
         kind: input.kind,
         amount: input.amount,
         categoryId: input.categoryId,
-        walletId: input.walletId,
-        toWalletId: input.toWalletId,
+        walletId: data.wallets[0]?.id || "",
         date: input.date,
         note: input.note,
         createdAt: now,
@@ -134,8 +128,7 @@ export default function App() {
           kind: input.kind,
           amount: input.amount,
           categoryId: input.categoryId,
-          walletId: input.walletId,
-          toWalletId: input.toWalletId,
+          walletId: data.wallets[0]?.id || "",
           note: input.note,
           frequency: input.recurring.frequency,
           interval: input.recurring.interval,
@@ -283,7 +276,7 @@ export default function App() {
         {tab === "settings" && (
           <SettingsView
             settings={data.settings} wallets={data.wallets} categories={data.categories} transactions={data.transactions}
-            onOpeningBalance={() => setModal("opening-balance")} onWallets={() => setModal("wallets")} onCategories={() => setModal("categories")}
+            onOpeningBalance={() => setModal("opening-balance")} onCategories={() => setModal("categories")}
             onReminder={() => setModal("reminder")} onBackup={() => setModal("backup")} onRestore={() => setModal("restore")}
             onPin={() => setModal("pin")}
             onExportCsv={() => {
@@ -328,7 +321,6 @@ export default function App() {
         <VoiceTransactionForm
           transaction={data.transactions.find(item => item.id === selectedTransactionId)}
           categories={data.categories}
-          wallets={data.wallets}
           onSubmit={addTransaction} 
           onClose={() => { setSelectedTransactionId(null); setModal(null); }}
         />
@@ -380,7 +372,6 @@ export default function App() {
       {modal === "smart-plan" && <SmartPlanModal data={data} month={month} onClose={() => setModal(null)} onApplied={async () => { setModal(null); await refresh(); }} />}
       {modal === "pin" && <PinForm settings={data.settings} onClose={() => setModal(null)} onSave={async pin => { const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))); const pinHash = await hashPin(pin, salt); await db.settings.update("settings", { lockEnabled: true, pinHash, pinSalt: salt, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} onDisable={async () => { await db.settings.update("settings", { lockEnabled: false, pinHash: undefined, pinSalt: undefined, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "categories" && <CategoryManager categories={data.categories} onClose={() => setModal(null)} onChange={refresh} />}
-      {modal === "wallets" && <WalletManager wallets={data.wallets} onClose={() => setModal(null)} onChange={refresh} />}
       {modal === "opening-balance" && <OpeningBalanceForm current={data.wallets[0]?.initialBalance ?? data.settings.openingBalance} onClose={() => setModal(null)} onSave={async openingBalance => { await db.settings.update("settings", { openingBalance, updatedAt: new Date().toISOString() }); if (data.wallets.length > 0) { await db.wallets.update(data.wallets[0].id, { initialBalance: openingBalance, updatedAt: new Date().toISOString() }); } setModal(null); await refresh(); }} />}
       {modal === "reminder" && <ReminderForm settings={data.settings} onClose={() => setModal(null)} onSave={async (enabled, reminderTime) => { if (isNativeApp()) { if (enabled) await setDailyReminder(reminderTime); else await clearDailyReminder(); } else if (enabled) await setWebPushReminder(reminderTime); else await clearWebPushReminder(); await db.settings.update("settings", { reminderEnabled: enabled, reminderTime, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
     </main>

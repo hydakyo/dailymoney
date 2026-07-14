@@ -182,7 +182,6 @@ export function InstallmentForm({ categories, wallets, onSubmit, onClose }: { ca
   const [startDate, setStartDate] = useState(today());
   const [dueDate, setDueDate] = useState("15");
   const [categoryId, setCategoryId] = useState("");
-  const [walletId, setWalletId] = useState(wallets[0]?.id ?? "");
 
   const expenseCategories = categories.filter(c => c.kind === "expense" && !c.archived);
   
@@ -206,7 +205,6 @@ export function InstallmentForm({ categories, wallets, onSubmit, onClose }: { ca
 
       <label className="field"><span>Ngày bắt đầu góp</span><input type="date" value={startDate} onChange={event => setStartDate(event.target.value)} /></label>
       <label className="field"><span>Danh mục chi</span><select value={categoryId} onChange={event => setCategoryId(event.target.value)}>{expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-      <label className="field"><span>Ví trừ tiền</span><select value={walletId} onChange={event => setWalletId(event.target.value)}>{wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
       <p className="form-note">Mỗi tháng bạn sẽ trả: {totalAmount && totalMonths ? formatVnd(Number(totalAmount) / Number(totalMonths)) : "0 đ"}</p>
       
       <button className="primary full" disabled={!name || !totalAmount || !totalMonths || !categoryId} onClick={() => void onSubmit({ 
@@ -217,7 +215,7 @@ export function InstallmentForm({ categories, wallets, onSubmit, onClose }: { ca
         startDate, 
         dueDate: Number(dueDate), 
         categoryId, 
-        walletId 
+        walletId: wallets[0]?.id || "" 
       })}>
         Tạo khoản trả góp
       </button>
@@ -231,8 +229,6 @@ export function RecurringForm({ categories, wallets, onSubmit, onClose }: { cate
   const [categoryId, setCategoryId] = useState("");
   const [frequency, setFrequency] = useState<RecurringRule["frequency"]>("monthly");
   const [date, setDate] = useState(today());
-  const activeWallets = React.useMemo(() => wallets.filter(wallet => !wallet.archived), [wallets]);
-  const [walletId, setWalletId] = useState(activeWallets[0]?.id ?? "");
   const relevant = React.useMemo(() => categories.filter(category => category.kind === kind && !category.archived), [categories, kind]);
   React.useEffect(() => {
     if (!relevant.some(category => category.id === categoryId)) setCategoryId(relevant[0]?.id ?? "");
@@ -244,7 +240,6 @@ export function RecurringForm({ categories, wallets, onSubmit, onClose }: { cate
         <button className={kind === "income" ? "selected income-bg" : ""} onClick={() => setKind("income")}>Thu tiền</button>
       </div>
       <AmountInput value={amount} onChange={setAmount} />
-      <label className="field"><span>Ví giao dịch</span><select value={walletId} onChange={event => setWalletId(event.target.value)}>{activeWallets.map(wallet => <option key={wallet.id} value={wallet.id}>{wallet.name}</option>)}</select></label>
       <label className="field"><span>Danh mục</span><select value={categoryId} onChange={event => setCategoryId(event.target.value)}>{relevant.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
       <label className="field">
         <span>Tần suất</span>
@@ -256,7 +251,7 @@ export function RecurringForm({ categories, wallets, onSubmit, onClose }: { cate
         </select>
       </label>
       <label className="field"><span>Ngày bắt đầu</span><input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
-      <button className="primary full" disabled={!amount || !categoryId || !walletId} onClick={() => void onSubmit({ kind, amount: Number(amount), categoryId, walletId, frequency, interval: 1, dayOfMonth: Number(date.slice(-2)), startDate: date, nextDueDate: date })}>Tạo lịch lặp</button>
+      <button className="primary full" disabled={!amount || !categoryId} onClick={() => void onSubmit({ kind, amount: Number(amount), categoryId, walletId: wallets[0]?.id || "", frequency, interval: 1, dayOfMonth: Number(date.slice(-2)), startDate: date, nextDueDate: date })}>Tạo lịch lặp</button>
     </Modal>
   );
 }
