@@ -86,8 +86,8 @@ export default function App() {
     [data.budgets, data.transactions, data.categories, month]
   );
   const forecast = useMemo(
-    () => monthForecast({ balance, month, transactions: data.transactions, rules: data.rules, occurrences: data.occurrences, installments: data.installments, budgets: budgetItems }),
-    [balance, budgetItems, data.installments, data.occurrences, data.rules, data.transactions, month]
+    () => monthForecast({ balance, month, transactions: data.transactions, rules: data.rules, occurrences: data.occurrences, installments: data.installments, budgets: budgetItems, debts: data.debts, debtPayments: data.payments }),
+    [balance, budgetItems, data.debts, data.installments, data.occurrences, data.payments, data.rules, data.transactions, month]
   );
 
   if (!ready) {

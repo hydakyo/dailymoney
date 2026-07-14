@@ -101,7 +101,23 @@ describe("finance calculations", () => {
       asOf: new Date(2026, 6, 14)
     });
 
-    expect(forecast).toMatchObject({ expectedRecurringExpense: 400_000, projectedFlexibleExpense: 17_000, flexibleForecastSource: "history", projectedBalance: 4_583_000 });
+    expect(forecast).toMatchObject({ expectedRecurringExpense: 400_000, projectedFlexibleExpense: 14_000, flexibleForecastSource: "history", projectedBalance: 4_586_000 });
+  });
+
+  it("includes due debts using their remaining balances in the end-of-month forecast", () => {
+    const payable: Debt = { id: "payable", kind: "payable", person: "An", principal: 600_000, openedDate: "2026-06-01", dueDate: "2026-07-20", createdAt: "", updatedAt: "" };
+    const receivable: Debt = { id: "receivable", kind: "receivable", person: "Bình", principal: 500_000, openedDate: "2026-06-01", dueDate: "2026-07-28", createdAt: "", updatedAt: "" };
+    const forecast = monthForecast({
+      balance: 1_000_000, month: "2026-07", transactions: [], rules: [], occurrences: [], installments: [], budgets: [],
+      debts: [payable, receivable],
+      debtPayments: [
+        { id: "payable-payment", debtId: "payable", amount: 100_000, date: "2026-07-01", transactionId: "tx-1", createdAt: "" },
+        { id: "receivable-payment", debtId: "receivable", amount: 200_000, date: "2026-07-01", transactionId: "tx-2", createdAt: "" }
+      ],
+      asOf: new Date(2026, 6, 14)
+    });
+
+    expect(forecast).toMatchObject({ expectedDebtRepayments: 500_000, expectedDebtReceivables: 300_000, projectedBalance: 800_000 });
   });
 
   it("does not forecast a future installment period and finds the oldest missed period", () => {

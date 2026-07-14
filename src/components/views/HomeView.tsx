@@ -35,6 +35,13 @@ export function HomeView({
   onPending: (id: string, skip?: boolean) => void;
   onMonth: (month: string) => void;
 }) {
+  const forecastDetails = forecast ? [
+    forecast.expectedIncome > 0 && `+${formatVnd(forecast.expectedIncome)} thu lặp`,
+    forecast.expectedDebtReceivables > 0 && `+${formatVnd(forecast.expectedDebtReceivables)} phải thu`,
+    forecast.expectedRecurringExpense > 0 && `−${formatVnd(forecast.expectedRecurringExpense)} chi lặp`,
+    forecast.expectedDebtRepayments > 0 && `−${formatVnd(forecast.expectedDebtRepayments)} phải trả`,
+    forecast.projectedFlexibleExpense > 0 && `−${formatVnd(forecast.projectedFlexibleExpense)} chi linh hoạt (${forecast.flexibleForecastSource === "history" ? "theo 3 tháng trước" : "theo tháng này và lịch sử"})`
+  ].filter(Boolean).join(" · ") : "";
   const getAdviceIcon = (level: string) => {
     switch (level) {
       case "danger": return <AlertCircle size={24} className="text-danger" />;
@@ -83,12 +90,8 @@ export function HomeView({
             {forecast.expectedInstallmentPeriods > 0 && (
               <small className="forecast-installments">Trả góp dự kiến: {formatVnd(forecast.expectedInstallments)} · bao gồm {forecast.expectedInstallmentPeriods} kỳ chưa thanh toán.</small>
             )}
-            {(forecast.expectedIncome > 0 || forecast.expectedRecurringExpense > 0 || forecast.projectedFlexibleExpense > 0) && (
-              <small className="forecast-installments">
-                Dòng tiền còn lại: {forecast.expectedIncome > 0 && `+${formatVnd(forecast.expectedIncome)} thu lặp`} {forecast.expectedRecurringExpense > 0 && ` · −${formatVnd(forecast.expectedRecurringExpense)} chi lặp`} {forecast.projectedFlexibleExpense > 0 && ` · −${formatVnd(forecast.projectedFlexibleExpense)} chi linh hoạt (${forecast.flexibleForecastSource === "history" ? "theo 3 tháng trước" : "theo tháng này"})`}.
-              </small>
-            )}
-            {forecast.flexibleForecastSource === "none" && forecast.expectedIncome === 0 && forecast.expectedRecurringExpense === 0 && (
+            {forecastDetails && <small className="forecast-installments">Dòng tiền còn lại: {forecastDetails}.</small>}
+            {forecast.flexibleForecastSource === "none" && forecast.expectedIncome === 0 && forecast.expectedRecurringExpense === 0 && forecast.expectedDebtReceivables === 0 && forecast.expectedDebtRepayments === 0 && (
               <small className="forecast-installments">Chưa có lịch lặp hoặc dữ liệu chi tiêu để ước tính thêm.</small>
             )}
           </div>
