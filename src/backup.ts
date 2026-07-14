@@ -3,7 +3,18 @@ import { BackupSchema } from "./domain";
 
 import { z } from "zod";
 
-const Base64Schema = z.string().regex(/^[A-Za-z0-9+/]*={0,2}$/);
+function isCanonicalBase64(value: string) {
+  if (!value || value.length % 4 !== 0) return false;
+  try {
+    return btoa(atob(value)) === value;
+  } catch {
+    return false;
+  }
+}
+
+function base64Schema(maxLength: number) {
+  return z.string().regex(/^[A-Za-z0-9+/]*={0,2}$/).max(maxLength).refine(isCanonicalBase64, "Invalid Base64 padding/encoding");
+}
 
 const EncryptedBackupSchema = z.object({
   format: z.literal("daily-money-encrypted"),
@@ -12,12 +23,12 @@ const EncryptedBackupSchema = z.object({
     name: z.literal("PBKDF2"),
     hash: z.literal("SHA-256"),
     iterations: z.number().int().min(100_000).max(2_000_000),
-    salt: Base64Schema.max(128)
+    salt: base64Schema(128)
   }),
   cipher: z.object({
     name: z.literal("AES-GCM"),
-    iv: Base64Schema.max(64),
-    ciphertext: Base64Schema.max(50_000_000)
+    iv: base64Schema(64),
+    ciphertext: base64Schema(50_000_000)
   })
 });
 

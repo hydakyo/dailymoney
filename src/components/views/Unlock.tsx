@@ -7,7 +7,16 @@ import { db } from "../../db";
 export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlocked: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
-  const [attemptsInWindow, setAttemptsInWindow] = useState(() => Number(localStorage.getItem("pin_failedAttemptsInWindow") || "0"));
+  const [attemptsInWindow, setAttemptsInWindow] = useState(() => {
+    const lastFailure = Number(localStorage.getItem("pin_lastFailureAt") || "0");
+    if (lastFailure > 0 && Date.now() - lastFailure > 86400000) {
+      localStorage.removeItem("pin_failedAttemptsInWindow");
+      localStorage.removeItem("pin_lockoutLevel");
+      localStorage.removeItem("pin_lastFailureAt");
+      return 0;
+    }
+    return Number(localStorage.getItem("pin_failedAttemptsInWindow") || "0");
+  });
   const [lockoutLevel, setLockoutLevel] = useState(() => Number(localStorage.getItem("pin_lockoutLevel") || "0"));
   const [lockoutUntil, setLockoutUntil] = useState<number>(() => Number(localStorage.getItem("pin_lockoutUntil") || "0"));
   const [timeLeft, setTimeLeft] = useState(0);
@@ -37,6 +46,7 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
     const newAttempts = attemptsInWindow + 1;
     setAttemptsInWindow(newAttempts);
     localStorage.setItem("pin_failedAttemptsInWindow", newAttempts.toString());
+    localStorage.setItem("pin_lastFailureAt", Date.now().toString());
     setPin("");
     
     if (newAttempts >= 5) {
@@ -105,6 +115,10 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
                 pinSalt: newSalt,
                 updatedAt: new Date().toISOString()
               });
+              localStorage.removeItem("pin_failedAttemptsInWindow");
+              localStorage.removeItem("pin_lockoutLevel");
+              localStorage.removeItem("pin_lockoutUntil");
+              localStorage.removeItem("pin_lastFailureAt");
               onUnlocked();
               return;
             }
@@ -114,6 +128,7 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
               localStorage.removeItem("pin_failedAttemptsInWindow");
               localStorage.removeItem("pin_lockoutLevel");
               localStorage.removeItem("pin_lockoutUntil");
+              localStorage.removeItem("pin_lastFailureAt");
               onUnlocked();
             } else {
               registerFailedAttempt();

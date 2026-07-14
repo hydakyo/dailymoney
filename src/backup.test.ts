@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import "fake-indexeddb/auto";
 import { decryptBackup, encryptBackup } from "./backup";
 import type { BackupPayloadV1, BackupPayloadV2, BackupPayloadV3 } from "./domain";
 
@@ -53,6 +54,41 @@ describe("encrypted backup", () => {
 
   it("rejects malformed base64 metadata with a controlled error", async () => {
     const encrypted = await encryptBackup(payloadV3, "mot-mat-khau-dai");
-    await expect(decryptBackup({ ...encrypted, kdf: { ...encrypted.kdf, salt: "A" } }, "mot-mat-khau-dai")).rejects.toThrow("Không thể mở backup");
+    await expect(decryptBackup({ ...encrypted, kdf: { ...encrypted.kdf, salt: "A" } }, "mot-mat-khau-dai")).rejects.toThrow("File backup không đúng định dạng");
+  });
+});
+
+import { db, exportBackup, restoreBackup } from "./db";
+
+describe("E2E Restore", () => {
+  it("exports, clears and restores the complete database", async () => {
+    // Seed full database
+    await db.settings.put(richPayloadV3.settings);
+    if (richPayloadV3.categories) await db.categories.bulkPut(richPayloadV3.categories);
+    if (richPayloadV3.transactions) await db.transactions.bulkPut(richPayloadV3.transactions);
+    if (richPayloadV3.budgets) await db.budgets.bulkPut(richPayloadV3.budgets);
+    if (richPayloadV3.recurringRules) await db.recurringRules.bulkPut(richPayloadV3.recurringRules);
+    if (richPayloadV3.recurringOccurrences) await db.recurringOccurrences.bulkPut(richPayloadV3.recurringOccurrences);
+    if (richPayloadV3.debts) await db.debts.bulkPut(richPayloadV3.debts);
+    if (richPayloadV3.debtPayments) await db.debtPayments.bulkPut(richPayloadV3.debtPayments);
+    if (richPayloadV3.goals) await db.goals.bulkPut(richPayloadV3.goals);
+    if (richPayloadV3.goalEntries) await db.goalEntries.bulkPut(richPayloadV3.goalEntries);
+    if (richPayloadV3.wallets) await db.wallets.bulkPut(richPayloadV3.wallets);
+    if (richPayloadV3.installments) await db.installments.bulkPut(richPayloadV3.installments);
+
+    const original = await exportBackup();
+    const encrypted = await encryptBackup(original, "mot-mat-khau-dai");
+
+    // Clear all tables
+    await Promise.all(db.tables.map(table => table.clear()));
+
+    const decrypted = await decryptBackup(encrypted, "mot-mat-khau-dai");
+    await restoreBackup(decrypted);
+
+    const restored = await exportBackup();
+
+    // Normalize timestamps (exportedAt will be different)
+    const normalize = (payload: any) => ({ ...payload, exportedAt: undefined });
+    expect(normalize(restored)).toEqual(normalize(original));
   });
 });
