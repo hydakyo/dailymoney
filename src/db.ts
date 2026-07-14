@@ -107,6 +107,30 @@ class DailyMoneyDatabase extends Dexie {
         if (transaction.installmentId && !transaction.installmentPeriod) transaction.installmentPeriod = transaction.date.slice(0, 7);
       });
     });
+
+    this.version(6).stores({
+      settings: "id", wallets: "id, archived", categories: "id, kind, archived",
+      transactions: "id, date, kind, categoryId, walletId, toWalletId, recurringRuleId, debtPaymentId, installmentId, installmentPeriod, &[installmentId+installmentPeriod]",
+      budgets: "id, [month+categoryId], month, categoryId", recurringRules: "id, active, nextDueDate",
+      recurringOccurrences: "id, [ruleId+dueDate], status, dueDate", debts: "id, kind, dueDate, closedAt",
+      debtPayments: "id, debtId, date, transactionId", goals: "id, closedAt", goalEntries: "id, goalId, date",
+      installments: "id, closedAt, dueDate"
+    }).upgrade(async trans => {
+      const transactions = await trans.table("transactions").toArray() as Transaction[];
+      const seen = new Set<string>();
+      for (const transaction of transactions) {
+        if (!transaction.installmentId) continue;
+        transaction.installmentPeriod ??= transaction.date.slice(0, 7);
+        const key = `${transaction.installmentId}:${transaction.installmentPeriod}`;
+        if (seen.has(key)) {
+          transaction.installmentId = undefined;
+          transaction.installmentPeriod = undefined;
+        } else {
+          seen.add(key);
+        }
+      }
+      await trans.table("transactions").bulkPut(transactions);
+    });
   }
 }
 
@@ -163,10 +187,22 @@ export async function restoreBackup(payload: BackupPayloadV1 | BackupPayloadV2 |
     await Promise.all(db.tables.map(table => table.clear()));
     await db.settings.put(payload.settings);
     await db.categories.bulkAdd(payload.categories);
-    await db.transactions.bulkAdd(payload.transactions);
-    await db.transactions.toCollection().modify((transaction: Transaction) => {
-      if (transaction.installmentId && !transaction.installmentPeriod) transaction.installmentPeriod = transaction.date.slice(0, 7);
+    const seenInstallmentPeriods = new Set<string>();
+    const restoredTransactions = payload.transactions.map(transaction => {
+      const restored = { ...transaction };
+      if (restored.installmentId) {
+        restored.installmentPeriod ??= restored.date.slice(0, 7);
+        const key = `${restored.installmentId}:${restored.installmentPeriod}`;
+        if (seenInstallmentPeriods.has(key)) {
+          restored.installmentId = undefined;
+          restored.installmentPeriod = undefined;
+        } else {
+          seenInstallmentPeriods.add(key);
+        }
+      }
+      return restored;
     });
+    await db.transactions.bulkAdd(restoredTransactions);
     await db.budgets.bulkAdd(payload.budgets ?? []);
     await db.recurringRules.bulkAdd(payload.recurringRules ?? []);
     await db.recurringOccurrences.bulkAdd(payload.recurringOccurrences ?? []);

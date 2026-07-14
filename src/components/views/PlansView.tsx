@@ -1,7 +1,7 @@
 import { Plus, Trash2, Landmark, HandCoins, Goal, CalendarDays, Smartphone, Copy } from "lucide-react";
 import type { Category, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction } from "../../domain";
 import { formatVnd, today } from "../../domain";
-import { debtOutstanding, goalBalance } from "../../finance";
+import { debtOutstanding, goalBalance, oldestUnpaidInstallmentPeriod } from "../../finance";
 import type { BudgetProgressItem } from "../../finance";
 import { Card } from "../ui/Card";
 import type { AppData } from "../../store";
@@ -159,7 +159,7 @@ export function PlansView({
               const paidMonths = transactions.filter(transaction => transaction.installmentId === item.id).length;
               const now = new Date();
               const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-              const paidThisPeriod = transactions.some(transaction => transaction.installmentId === item.id && transaction.installmentPeriod === currentPeriod);
+              const paymentPeriod = oldestUnpaidInstallmentPeriod(item, transactions);
               const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
               const effectiveDueDate = Math.min(item.dueDate, daysInCurrentMonth);
               const remainingMonths = item.totalMonths - paidMonths;
@@ -168,7 +168,7 @@ export function PlansView({
                 <Card key={item.id} className="plan-card">
                   <div className="row-between">
                     <strong>{item.name}</strong>
-                    <span className={paidMonths >= item.totalMonths ? "pill" : paidThisPeriod ? "pill" : "pill expense"}>{paidMonths >= item.totalMonths ? "Đã hoàn tất" : paidThisPeriod ? "Đã trả kỳ này" : "Cần xác nhận"}</span>
+                    <span className={paidMonths >= item.totalMonths ? "pill" : "pill expense"}>{paidMonths >= item.totalMonths ? "Đã hoàn tất" : paymentPeriod === currentPeriod ? "Cần xác nhận" : `Trả bù kỳ ${paymentPeriod ?? ""}`}</span>
                   </div>
                   <h3>{formatVnd(item.monthlyAmount)} <small className="muted">/ tháng</small></h3>
                   <div className="progress" style={{ marginTop: 12 }}>
@@ -181,7 +181,7 @@ export function PlansView({
                   </div>
                   <div className="plan-actions" style={{ marginTop: 8 }}>
                     <p>Đã xác nhận: {paidMonths}/{item.totalMonths} kỳ · Hạn ngày {item.dueDate}</p>
-                    {paidMonths < item.totalMonths && !paidThisPeriod && <button className="soft" onClick={() => void onPayInstallment(item)}>Xác nhận trả kỳ này</button>}
+                    {paidMonths < item.totalMonths && paymentPeriod && <button className="soft" onClick={() => void onPayInstallment(item)}>Xác nhận {paymentPeriod === currentPeriod ? "trả kỳ này" : `trả bù ${paymentPeriod}`}</button>}
                     <button
                       className="icon-button subtle"
                       aria-label="Xóa khoản trả góp"

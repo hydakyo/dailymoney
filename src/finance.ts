@@ -15,6 +15,19 @@ export type MonthForecast = {
   daysRemaining: number;
 };
 
+export function installmentPeriods(installment: Installment) {
+  const [year, month] = installment.startDate.slice(0, 7).split("-").map(Number);
+  return Array.from({ length: installment.totalMonths }, (_, offset) => {
+    const date = new Date(Date.UTC(year, month - 1 + offset, 1));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  });
+}
+
+export function oldestUnpaidInstallmentPeriod(installment: Installment, transactions: Transaction[]) {
+  const paidPeriods = new Set(transactions.filter(transaction => transaction.installmentId === installment.id && transaction.installmentPeriod).map(transaction => transaction.installmentPeriod));
+  return installmentPeriods(installment).find(period => !paidPeriods.has(period));
+}
+
 export function walletBalance(wallet: Wallet, transactions: Transaction[]) {
   return wallet.initialBalance + transactions.reduce((total, transaction) => {
     if (transaction.walletId === wallet.id) {
@@ -86,13 +99,15 @@ export function monthForecast({
   const daysInMonth = new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate();
   const daysRemaining = Math.max(0, daysInMonth - asOf.getDate());
   const elapsedDays = Math.max(1, asOf.getDate());
-  const flexibleExpense = transactions
+  const flexibleTransactions = transactions
     .filter(transaction => transaction.kind === "expense" && transaction.date.startsWith(month) && !transaction.recurringRuleId && !transaction.installmentId && !transaction.debtPaymentId)
-    .reduce((sum, transaction) => sum + transaction.amount, 0);
-  const averageDailyExpense = flexibleExpense / elapsedDays;
+  const budgetedCategoryIds = new Set(budgets.map(budget => budget.categoryId));
+  const budgetedFlexibleExpense = flexibleTransactions.filter(transaction => budgetedCategoryIds.has(transaction.categoryId)).reduce((sum, transaction) => sum + transaction.amount, 0);
+  const unbudgetedFlexibleExpense = flexibleTransactions.filter(transaction => !budgetedCategoryIds.has(transaction.categoryId)).reduce((sum, transaction) => sum + transaction.amount, 0);
   const remainingBudget = budgets.reduce((sum, budget) => sum + Math.max(0, budget.limit - budget.spent), 0);
-  const uncappedFlexibleExpense = averageDailyExpense * daysRemaining;
-  const projectedFlexibleExpense = budgets.length ? Math.min(uncappedFlexibleExpense, remainingBudget) : uncappedFlexibleExpense;
+  const projectedBudgetedExpense = Math.min((budgetedFlexibleExpense / elapsedDays) * daysRemaining, remainingBudget);
+  const projectedUnbudgetedExpense = (unbudgetedFlexibleExpense / elapsedDays) * daysRemaining;
+  const projectedFlexibleExpense = projectedBudgetedExpense + projectedUnbudgetedExpense;
 
   const ruleById = new Map(rules.map(rule => [rule.id, rule]));
   let expectedIncome = 0;
@@ -106,10 +121,7 @@ export function monthForecast({
   }
 
   const expectedInstallments = installments.reduce((sum, installment) => {
-    if (installment.closedAt || installment.startDate > `${month}-${String(daysInMonth).padStart(2, "0")}`) return sum;
-    if (transactions.some(transaction => transaction.installmentId === installment.id && transaction.installmentPeriod === month)) return sum;
-    const dueDate = Math.min(installment.dueDate, daysInMonth);
-    return sum + installment.monthlyAmount;
+    return installment.closedAt || !oldestUnpaidInstallmentPeriod(installment, transactions) ? sum : sum + installment.monthlyAmount;
   }, 0);
 
   return {

@@ -4,7 +4,7 @@ import { decryptBackup, downloadFile, encryptBackup, transactionsCsv, type Encry
 import { db, exportBackup, restoreBackup } from "./db";
 import { currentMonth, formatVnd, newId, today } from "./domain";
 import type { EditableTransactionKind, RecurringRule, Transaction } from "./domain";
-import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, monthForecast, monthTotals } from "./finance";
+import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, monthForecast, monthTotals, oldestUnpaidInstallmentPeriod } from "./finance";
 import { addMonths } from "./utils";
 import { clearDailyReminder, isNativeApp, setDailyReminder } from "./notifications";
 import { clearWebPushReminder, setWebPushReminder, supportsWebPush } from "./web-push";
@@ -332,11 +332,17 @@ export default function App() {
               });
               await refresh();
             }}
-            onDeleteInstallment={async id => { await db.installments.delete(id); await refresh(); }}
+            onDeleteInstallment={async id => {
+              await db.transaction("rw", db.installments, db.transactions, async () => {
+                await db.transactions.where("installmentId").equals(id).modify({ installmentId: undefined, installmentPeriod: undefined });
+                await db.installments.delete(id);
+              });
+              await refresh();
+            }}
             onPayInstallment={async installment => {
-              const installmentPeriod = today().slice(0, 7);
-              if (installment.closedAt || installmentPeriod < installment.startDate.slice(0, 7) || installmentPeriod >= addMonths(installment.startDate.slice(0, 7), installment.totalMonths)) {
-                window.alert("Kỳ trả góp hiện tại không còn khả dụng để thanh toán.");
+              const installmentPeriod = oldestUnpaidInstallmentPeriod(installment, data.transactions);
+              if (!installmentPeriod) {
+                window.alert("Khoản trả góp này đã thanh toán đủ số kỳ.");
                 return;
               }
               const existingPayment = await db.transactions.where("[installmentId+installmentPeriod]").equals([installment.id, installmentPeriod]).first();
@@ -344,7 +350,7 @@ export default function App() {
                 window.alert("Kỳ trả góp tháng này đã được xác nhận.");
                 return;
               }
-              if (!window.confirm(`Ghi chi ${formatVnd(installment.monthlyAmount)} cho ${installment.name}?`)) return;
+              if (!window.confirm(`Ghi chi ${formatVnd(installment.monthlyAmount)} cho kỳ ${installmentPeriod} của ${installment.name}?`)) return;
               const now = new Date().toISOString();
               await db.transaction("rw", db.transactions, db.installments, async () => {
                 const paidForPeriod = await db.transactions.where("[installmentId+installmentPeriod]").equals([installment.id, installmentPeriod]).first();
