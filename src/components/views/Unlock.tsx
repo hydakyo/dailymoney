@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { LockKeyhole } from "lucide-react";
 import type { AppSettings } from "../../domain";
 import { hashPin, hashLegacyPin, timingSafeEqual, toBase64 } from "../../utils";
@@ -7,7 +7,8 @@ import { db } from "../../db";
 export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlocked: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
-  const [attempts, setAttempts] = useState(() => Number(localStorage.getItem("pin_failedAttempts") || "0"));
+  const [attemptsInWindow, setAttemptsInWindow] = useState(() => Number(localStorage.getItem("pin_failedAttemptsInWindow") || "0"));
+  const [lockoutLevel, setLockoutLevel] = useState(() => Number(localStorage.getItem("pin_lockoutLevel") || "0"));
   const [lockoutUntil, setLockoutUntil] = useState<number>(() => Number(localStorage.getItem("pin_lockoutUntil") || "0"));
   const [timeLeft, setTimeLeft] = useState(0);
 
@@ -17,9 +18,9 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
         const remaining = Math.ceil((lockoutUntil - Date.now()) / 1000);
         if (remaining <= 0) {
           setLockoutUntil(0);
-          setAttempts(0);
+          setAttemptsInWindow(0);
           setError("");
-          localStorage.removeItem("pin_failedAttempts");
+          localStorage.removeItem("pin_failedAttemptsInWindow");
           localStorage.removeItem("pin_lockoutUntil");
           clearInterval(interval);
         } else {
@@ -33,22 +34,26 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
   const lockedOut = lockoutUntil > Date.now();
 
   const registerFailedAttempt = () => {
-    const newAttempts = attempts + 1;
-    setAttempts(newAttempts);
-    localStorage.setItem("pin_failedAttempts", newAttempts.toString());
+    const newAttempts = attemptsInWindow + 1;
+    setAttemptsInWindow(newAttempts);
+    localStorage.setItem("pin_failedAttemptsInWindow", newAttempts.toString());
     setPin("");
     
     if (newAttempts >= 5) {
-      let penaltySeconds = 30; // 30s
-      if (newAttempts >= 20) penaltySeconds = 3600; // 1 hour max
-      else if (newAttempts >= 15) penaltySeconds = 600; // 10 minutes
-      else if (newAttempts >= 10) penaltySeconds = 120; // 2 minutes
+      const newLevel = lockoutLevel + 1;
+      setLockoutLevel(newLevel);
+      localStorage.setItem("pin_lockoutLevel", newLevel.toString());
+
+      let penaltySeconds = 30; // 30s for level 1
+      if (newLevel >= 4) penaltySeconds = 3600; // 1 hour for level >= 4
+      else if (newLevel === 3) penaltySeconds = 600; // 10 minutes
+      else if (newLevel === 2) penaltySeconds = 120; // 2 minutes
       
       const newLockoutUntil = Date.now() + penaltySeconds * 1000;
       setLockoutUntil(newLockoutUntil);
       localStorage.setItem("pin_lockoutUntil", newLockoutUntil.toString());
     } else {
-      setError(`Mã PIN chưa đúng (còn ${5 - (newAttempts % 5)} lần).`);
+      setError(`Mã PIN chưa đúng (còn ${5 - newAttempts} lần thử).`);
     }
   };
 
@@ -81,7 +86,7 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
       
       <button
         className="primary full"
-        disabled={lockedOut || pin.length < 4}
+        disabled={lockedOut || pin.length !== 6}
         onClick={async () => {
           if (!settings.pinSalt || !settings.pinHash) return;
           
@@ -112,7 +117,7 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
             } else {
               registerFailedAttempt();
             }
-          } catch (e: any) {
+          } catch {
             setError("Lỗi xử lý PIN.");
           }
         }}

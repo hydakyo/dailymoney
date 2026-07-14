@@ -29,7 +29,7 @@ export function TransactionsView({
   const list = transactions
     .filter(item => item.date.startsWith(month))
     .filter(item => {
-      const category = categories.get(item.categoryId)?.name ?? "";
+      const category = item.kind === "transfer" ? "Chuyển ví" : categories.get(item.categoryId)?.name ?? "";
       return `${category} ${item.note ?? ""} ${item.amount}`
         .toLocaleLowerCase("vi-VN")
         .includes(query.toLocaleLowerCase("vi-VN"));
@@ -83,6 +83,7 @@ export function TransactionsView({
         {list.length ? (
           list.map(item => {
             const category = categories.get(item.categoryId);
+            const isTransfer = item.kind === "transfer";
             return (
               <Card key={item.id} className="transaction">
                 <div
@@ -92,7 +93,9 @@ export function TransactionsView({
                     color: category?.color
                   }}
                 >
-                  {category?.icon === "Utensils"
+                  {isTransfer
+                    ? "⇄"
+                    : category?.icon === "Utensils"
                     ? "🍜"
                     : category?.icon === "Car"
                     ? "🚗"
@@ -108,17 +111,17 @@ export function TransactionsView({
                   className="transaction-main transaction-edit"
                   onClick={() => onEdit(item.id)}
                 >
-                  <strong>{category?.name ?? "Không rõ"}</strong>
+                  <strong>{isTransfer ? "Chuyển ví" : category?.name ?? "Không rõ"}</strong>
                   <p>
                     {item.note || item.date} · {item.note ? item.date : ""}
                   </p>
                 </button>
                 <div
                   className={
-                    item.kind === "income" ? "amount income" : "amount expense"
+                    item.kind === "income" ? "amount income" : item.kind === "expense" ? "amount expense" : "amount"
                   }
                 >
-                  {item.kind === "income" ? "+" : "−"}
+                  {item.kind === "income" ? "+" : item.kind === "expense" ? "−" : "⇄ "}
                   {formatVnd(item.amount)}
                 </div>
                 <button
