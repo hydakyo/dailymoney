@@ -146,6 +146,18 @@ describe("finance calculations", () => {
     expect(flow?.dailyFlexibleAllowance).toBe(0);
   });
 
+  it("preserves the configured reserve floor instead of merely avoiding a negative balance", () => {
+    const flow = cashFlowForecast({
+      balance: 1_000_000, month: "2026-07", transactions: [], rules: [], occurrences: [], installments: [], budgets: [],
+      reserveFloor: 1_500_000,
+      asOf: new Date(2026, 6, 14)
+    });
+
+    expect(flow?.dailyFlexibleAllowance).toBe(0);
+    expect(flow?.lowestBalanceWithoutFlexible).toBe(1_000_000);
+    expect(flow?.shortfall).toBe(500_000);
+  });
+
   it("jumps legacy daily rules directly to the forecast month", () => {
     const legacyDaily = rule({ frequency: "daily", interval: 1, nextDueDate: "2000-01-01" });
     const dates = recurringDatesInMonth(legacyDaily, "2026-07");

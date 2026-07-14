@@ -26,12 +26,14 @@ export type CashFlowEvent = {
   label: string;
   kind: "income" | "recurring" | "installment" | "debt" | "flexible";
   priority?: ObligationPriority;
+  categoryId?: string;
 };
 
 export type CashFlowForecast = {
   endingBalance: number;
   lowestBalance: number;
   lowestBalanceDate: string | null;
+  lowestBalanceWithoutFlexible: number;
   shortfall: number;
   dailyFlexibleAllowance: number;
   flexibleExpenseForecast: number;
@@ -55,6 +57,7 @@ export type CashFlowForecastInput = {
   debtPayments?: DebtPayment[];
   asOf?: Date;
   scenario?: CashFlowScenario;
+  reserveFloor?: number;
 };
 
 export type CashFlowScenarios = {
@@ -342,6 +345,7 @@ export function cashFlowForecast(input: CashFlowForecastInput): CashFlowForecast
   const monthEnd = `${currentMonth}-${String(new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate()).padStart(2, "0")}`;
   const flexibleExpenseMultiplier = Math.max(0, input.scenario?.flexibleExpenseMultiplier ?? 1);
   const receivableMultiplier = Math.min(1, Math.max(0, input.scenario?.receivableMultiplier ?? 1));
+  const reserveFloor = Math.max(0, input.reserveFloor ?? 0);
   const fixedEvents: CashFlowEvent[] = [];
   const addEvent = (event: CashFlowEvent) => fixedEvents.push({ ...event, date: event.date < asOfDate ? asOfDate : event.date });
   const ruleById = new Map(input.rules.map(rule => [rule.id, rule]));
@@ -353,7 +357,8 @@ export function cashFlowForecast(input: CashFlowForecastInput): CashFlowForecast
     const occurrence = occurrenceByKey.get(key);
     if (occurrence && occurrence.status !== "pending") return;
     countedOccurrences.add(key);
-    addEvent({ date: dueDate, amount: rule.kind === "income" ? rule.amount : -rule.amount, label: rule.note || "Giao dịch lặp", kind: rule.kind === "income" ? "income" : "recurring", priority: rule.kind === "expense" ? rule.priority ?? "normal" : undefined });
+    const priority = rule.priority ?? "normal";
+    addEvent({ date: dueDate, amount: rule.kind === "income" ? rule.amount : -rule.amount, label: rule.note || "Giao dịch lặp", kind: rule.kind === "income" ? "income" : "recurring", priority: rule.kind === "expense" ? priority : undefined, categoryId: rule.categoryId });
   };
   for (const occurrence of input.occurrences) {
     if (occurrence.status !== "pending" || !occurrence.dueDate.startsWith(currentMonth)) continue;
@@ -370,7 +375,7 @@ export function cashFlowForecast(input: CashFlowForecastInput): CashFlowForecast
     for (const period of installmentPeriods(installment)) {
       if (period > currentMonth || paidPeriods.has(period)) continue;
       const day = String(Math.min(installment.dueDate, Number(monthEnd.slice(-2)))).padStart(2, "0");
-      addEvent({ date: period < currentMonth ? asOfDate : `${period}-${day}`, amount: -installment.monthlyAmount, label: `Trả góp: ${installment.name}`, kind: "installment", priority: installment.priority ?? "high" });
+      addEvent({ date: period < currentMonth ? asOfDate : `${period}-${day}`, amount: -installment.monthlyAmount, label: `Trả góp: ${installment.name}`, kind: "installment", priority: installment.priority ?? "high", categoryId: installment.categoryId });
     }
   }
 
@@ -414,21 +419,23 @@ export function cashFlowForecast(input: CashFlowForecastInput): CashFlowForecast
   const expectedDailyFlexible = flexibleDates.length ? flexibleExpenseForecast / flexibleDates.length : 0;
   const simulation = simulate(expectedDailyFlexible);
   let dailyFlexibleAllowance = 0;
-  if (flexibleDates.length && simulate(0).lowestBalance >= 0) {
+  const zeroFlexibleSimulation = simulate(0);
+  if (flexibleDates.length && zeroFlexibleSimulation.lowestBalance >= reserveFloor) {
     let lower = 0;
     let upper = expectedDailyFlexible;
     for (let iteration = 0; iteration < 32; iteration += 1) {
       const candidate = (lower + upper) / 2;
-      if (simulate(candidate).lowestBalance >= 0) lower = candidate;
+      if (simulate(candidate).lowestBalance >= reserveFloor) lower = candidate;
       else upper = candidate;
     }
-    dailyFlexibleAllowance = lower;
+    dailyFlexibleAllowance = Math.floor(lower);
   }
-  const shortfall = Math.max(0, -simulation.lowestBalance);
+  const shortfall = Math.ceil(Math.max(0, reserveFloor - simulation.lowestBalance));
   return {
     endingBalance: simulation.endingBalance,
     lowestBalance: simulation.lowestBalance,
     lowestBalanceDate: simulation.lowestBalanceDate,
+    lowestBalanceWithoutFlexible: zeroFlexibleSimulation.lowestBalance,
     shortfall,
     dailyFlexibleAllowance,
     flexibleExpenseForecast,

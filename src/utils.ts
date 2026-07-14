@@ -51,3 +51,8 @@ export function addMonths(month: string, offset: number) {
   const date = new Date(year, value - 1 + offset, 1);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
+
+export function formatDateVi(value: string) {
+  const [year, month, day] = value.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}

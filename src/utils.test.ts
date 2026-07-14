@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hashLegacyPin, hashPin, timingSafeEqual, toBase64 } from "./utils";
+import { formatDateVi, hashLegacyPin, hashPin, timingSafeEqual, toBase64 } from "./utils";
 
 describe("PIN hashing", () => {
   it("keeps legacy PIN verification exact during migration", async () => {
@@ -14,5 +14,11 @@ describe("PIN hashing", () => {
     const expected = await hashPin("123456", salt);
     expect(timingSafeEqual(await hashPin("123456", salt), expected)).toBe(true);
     expect(timingSafeEqual(await hashPin("654321", salt), expected)).toBe(false);
+  });
+});
+
+describe("Vietnamese date formatting", () => {
+  it("keeps ISO dates in storage but renders them in local display order", () => {
+    expect(formatDateVi("2026-07-31")).toBe("31/07/2026");
   });
 });

@@ -18,7 +18,7 @@ const data: AppData = {
     { id: "shopping-jun", kind: "expense", amount: 500_000, categoryId: "shopping", walletId: "wallet", date: "2026-06-10", createdAt: "", updatedAt: "" }
   ],
   budgets: [],
-  rules: [{ id: "rent", kind: "expense", amount: 1_000_000, categoryId: "food", walletId: "wallet", frequency: "monthly", interval: 1, dayOfMonth: 20, startDate: "2026-01-20", nextDueDate: "2026-07-20", active: true, createdAt: "", updatedAt: "" }],
+  rules: [{ id: "rent", kind: "expense", amount: 1_000_000, categoryId: "food", walletId: "wallet", frequency: "monthly", interval: 1, dayOfMonth: 20, startDate: "2026-01-20", nextDueDate: "2026-07-20", priority: "high", active: true, createdAt: "", updatedAt: "" }],
   occurrences: [],
   debts: [{ id: "debt", kind: "payable", person: "An", principal: 500_000, openedDate: "2026-06-01", dueDate: "2026-07-25", createdAt: "", updatedAt: "" }],
   payments: [],
@@ -65,6 +65,20 @@ describe("adaptive smart plan", () => {
     expect(plan.shortfall).toBeGreaterThan(0);
     expect(plan.priorityActions[0]).toMatchObject({ level: "danger" });
     expect(plan.lowestBalanceDate).toBeTruthy();
+    expect(plan.isBalanced).toBe(false);
+    expect(plan.flexibleAllowance).toBe(0);
+  });
+
+  it("defaults to rescue when cautious spending cannot preserve the reserve floor", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-14T12:00:00.000Z"));
+    const pressured: AppData = { ...data, wallets: [{ ...data.wallets[0], initialBalance: 2_500_000 }] };
+
+    const plan = generateSmartPlan(pressured, "2026-07");
+
+    expect(plan.defaultScenario).toBe("rescue");
+    expect(plan.selectedScenario).toBe("rescue");
+    expect(plan.reserveFloor).toBeGreaterThan(0);
   });
 
   it("refuses to create or apply a forecast plan for a non-current month", () => {

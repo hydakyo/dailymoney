@@ -4,6 +4,8 @@ import type { AppData } from "./store";
 import { budgetProgress, cashFlowScenarios, monthForecast, totalBalance } from "./finance";
 import { addMonths } from "./utils";
 
+export type SmartPlanScenarioId = "base" | "cautious" | "rescue";
+
 export interface SuggestedBudget {
   categoryId: string;
   categoryName: string;
@@ -12,7 +14,7 @@ export interface SuggestedBudget {
 }
 
 export interface PlanScenario {
-  id: "base" | "cautious" | "rescue";
+  id: SmartPlanScenarioId;
   label: string;
   description: string;
   endingBalance: number;
@@ -25,7 +27,10 @@ export interface SmartPlan {
   projectedBalance: number;
   forecastIncome: number;
   mandatoryExpenses: number;
+  trendFlexibleExpense: number;
   flexibleAllowance: number;
+  budgetReduction: number;
+  reserveFloor: number;
   recommendedReserve: number;
   suggestedBudgets: SuggestedBudget[];
   needsTotal: number;
@@ -33,6 +38,10 @@ export interface SmartPlan {
   savesTotal: number;
   summary: string;
   isCurrentMonth: boolean;
+  isBalanced: boolean;
+  selectedScenario: SmartPlanScenarioId;
+  defaultScenario: SmartPlanScenarioId;
+  unresolvedShortfall: number;
   lowestBalance: number;
   lowestBalanceDate: string | null;
   shortfall: number;
@@ -55,11 +64,19 @@ function categoryKind(category: Category): "need" | "want" {
   return category.financialClass === "essential" ? "need" : "want";
 }
 
+function moneyText(amount: number) {
+  return Math.ceil(Math.max(0, amount)).toLocaleString("vi-VN");
+}
+
+function isMandatoryPriority(priority: ObligationPriority | undefined) {
+  return priority === "essential" || priority === "high";
+}
+
 const PRIORITY_RANK: Record<ObligationPriority, number> = { essential: 0, high: 1, normal: 2, flexible: 3 };
 const PRIORITY_LABEL: Record<ObligationPriority, string> = {
   essential: "Thiết yếu",
   high: "Cao",
-  normal: "Bình thường",
+  normal: "Có thể điều chỉnh",
   flexible: "Linh hoạt"
 };
 
@@ -71,31 +88,41 @@ function daysUntil(date: string | null) {
   return Math.round((Date.UTC(year, month - 1, day) - start) / 86_400_000);
 }
 
-export function generateSmartPlan(data: AppData, currentMonth: string): SmartPlan {
+function unavailablePlan(balance: number): SmartPlan {
+  return {
+    projectedBalance: balance,
+    forecastIncome: 0,
+    mandatoryExpenses: 0,
+    trendFlexibleExpense: 0,
+    flexibleAllowance: 0,
+    budgetReduction: 0,
+    reserveFloor: 0,
+    recommendedReserve: 0,
+    suggestedBudgets: [],
+    needsTotal: 0,
+    wantsTotal: 0,
+    savesTotal: 0,
+    summary: "Kế hoạch thông minh chỉ hỗ trợ tháng đang diễn ra, vì cần số dư thực tế và các nghĩa vụ còn lại.",
+    isCurrentMonth: false,
+    isBalanced: false,
+    selectedScenario: "cautious",
+    defaultScenario: "cautious",
+    unresolvedShortfall: 0,
+    lowestBalance: balance,
+    lowestBalanceDate: null,
+    shortfall: 0,
+    dailyFlexibleCap: 0,
+    behaviorConfidence: "low",
+    scenarios: [],
+    priorityActions: [],
+    upcomingObligations: []
+  };
+}
+
+export function generateSmartPlan(data: AppData, currentMonth: string, selectedScenarioInput?: SmartPlanScenarioId): SmartPlan {
   const balance = totalBalance(data.wallets, data.transactions);
-  if (currentMonth !== actualCurrentMonth()) {
-    return {
-      projectedBalance: balance,
-      forecastIncome: 0,
-      mandatoryExpenses: 0,
-      flexibleAllowance: 0,
-      recommendedReserve: 0,
-      suggestedBudgets: [],
-      needsTotal: 0,
-      wantsTotal: 0,
-      savesTotal: 0,
-      summary: "Kế hoạch thông minh hiện chỉ hỗ trợ tháng đang diễn ra, vì cần số dư thực tế và các nghĩa vụ còn lại.",
-      isCurrentMonth: false,
-      lowestBalance: balance,
-      lowestBalanceDate: null,
-      shortfall: 0,
-      dailyFlexibleCap: 0,
-      behaviorConfidence: "low",
-      scenarios: [],
-      priorityActions: [],
-      upcomingObligations: []
-    };
-  }
+  if (currentMonth !== actualCurrentMonth()) return unavailablePlan(balance);
+
   const budgetItems = budgetProgress(data.budgets, data.transactions, data.categories, currentMonth);
   const forecast = monthForecast({
     balance,
@@ -108,6 +135,15 @@ export function generateSmartPlan(data: AppData, currentMonth: string): SmartPla
     debts: data.debts,
     debtPayments: data.payments
   });
+  const expenseCategories = data.categories.filter(category => category.kind === "expense" && !category.archived);
+  const categoryById = new Map(expenseCategories.map(category => [category.id, category]));
+  const historyMonths = [1, 2, 3].map(offset => addMonths(currentMonth, -offset));
+  const historyTransactions = data.transactions.filter(transaction => isFlexibleExpense(transaction) && historyMonths.some(month => transaction.date.startsWith(month)));
+  const currentFlexibleTransactions = data.transactions.filter(transaction => isFlexibleExpense(transaction) && transaction.date.startsWith(currentMonth));
+  const essentialHistory = historyTransactions.filter(transaction => categoryById.get(transaction.categoryId)?.financialClass === "essential");
+  const historicalEssentialDailySpend = essentialHistory.reduce((sum, transaction) => sum + transaction.amount, 0) / Math.max(1, historyMonths.length * 30);
+  const expectedFixedExpenses = (forecast?.expectedRecurringExpense ?? 0) + (forecast?.expectedInstallments ?? 0) + (forecast?.expectedDebtRepayments ?? 0);
+  const reserveFloor = roundUpToThousand(Math.max(historicalEssentialDailySpend * 7, expectedFixedExpenses * 0.05));
   const cashFlowInput = {
     balance,
     month: currentMonth,
@@ -117,31 +153,45 @@ export function generateSmartPlan(data: AppData, currentMonth: string): SmartPla
     installments: data.installments,
     budgets: budgetItems,
     debts: data.debts,
-    debtPayments: data.payments
+    debtPayments: data.payments,
+    reserveFloor
   };
   const flowScenarios = cashFlowScenarios(cashFlowInput);
-  const cashFlow = flowScenarios?.base;
-  const cautiousCashFlow = flowScenarios?.cautious;
-  const rescueCashFlow = flowScenarios?.rescue;
-  const expenseCategories = data.categories.filter(category => category.kind === "expense" && !category.archived);
-  const historyMonths = [1, 2, 3].map(offset => addMonths(currentMonth, -offset));
-  const historyTransactions = data.transactions.filter(transaction => isFlexibleExpense(transaction) && historyMonths.some(month => transaction.date.startsWith(month)));
-  const currentTransactions = data.transactions.filter(transaction => isFlexibleExpense(transaction) && transaction.date.startsWith(currentMonth));
-  const currentSpentByCategory = new Map<string, number>();
-  for (const transaction of currentTransactions) {
-    currentSpentByCategory.set(transaction.categoryId, (currentSpentByCategory.get(transaction.categoryId) ?? 0) + transaction.amount);
-  }
+  const defaultScenario: SmartPlanScenarioId = flowScenarios?.cautious.shortfall === 0 && flowScenarios.cautious.lowestBalanceWithoutFlexible >= reserveFloor
+    ? "cautious"
+    : "rescue";
+  const selectedScenario = selectedScenarioInput ?? defaultScenario;
+  const selectedFlow = flowScenarios?.[selectedScenario];
+  const baseFlow = flowScenarios?.base;
+  const structuralShortfall = selectedFlow ? Math.ceil(Math.max(0, reserveFloor - selectedFlow.lowestBalanceWithoutFlexible)) : 0;
+  const isBalanced = Boolean(selectedFlow) && structuralShortfall === 0;
+  const daysRemaining = Math.max(0, forecast?.daysRemaining ?? 0);
+  const dailyFlexibleCap = selectedFlow?.dailyFlexibleAllowance ?? 0;
+  const flexibleAllowance = isBalanced
+    ? Math.min(selectedFlow?.flexibleExpenseForecast ?? 0, dailyFlexibleCap * daysRemaining)
+    : 0;
+  const trendFlexibleExpense = Math.ceil(baseFlow?.flexibleExpenseForecast ?? forecast?.projectedFlexibleExpense ?? 0);
+  const budgetReduction = Math.ceil(Math.max(0, trendFlexibleExpense - flexibleAllowance));
 
+  const flexibleCurrentByCategory = new Map<string, number>();
+  for (const transaction of currentFlexibleTransactions) {
+    flexibleCurrentByCategory.set(transaction.categoryId, (flexibleCurrentByCategory.get(transaction.categoryId) ?? 0) + transaction.amount);
+  }
+  const allCurrentExpenseByCategory = new Map<string, number>();
+  for (const transaction of data.transactions) {
+    if (transaction.kind === "expense" && transaction.date.startsWith(currentMonth)) {
+      allCurrentExpenseByCategory.set(transaction.categoryId, (allCurrentExpenseByCategory.get(transaction.categoryId) ?? 0) + transaction.amount);
+    }
+  }
   const averageMonthlyByCategory = new Map<string, number>();
   for (const category of expenseCategories) {
     const total = historyTransactions.filter(transaction => transaction.categoryId === category.id).reduce((sum, transaction) => sum + transaction.amount, 0);
     if (total > 0) averageMonthlyByCategory.set(category.id, total / historyMonths.length);
   }
-
   const baselineRemainingByCategory = new Map<string, number>();
   for (const category of expenseCategories) {
     const average = averageMonthlyByCategory.get(category.id) ?? 0;
-    const spent = currentSpentByCategory.get(category.id) ?? 0;
+    const spent = flexibleCurrentByCategory.get(category.id) ?? 0;
     if (average > 0) baselineRemainingByCategory.set(category.id, Math.max(0, average - spent));
   }
   if (!baselineRemainingByCategory.size) {
@@ -149,112 +199,101 @@ export function generateSmartPlan(data: AppData, currentMonth: string): SmartPla
       if (budget.limit > budget.spent) baselineRemainingByCategory.set(budget.categoryId, budget.limit - budget.spent);
     }
   }
-
-  const baselineRemaining = [...baselineRemainingByCategory.values()].reduce((sum, amount) => sum + amount, 0);
-  const projectedBalance = forecast?.projectedBalance ?? balance;
-  const forecastIncome = forecast ? forecast.expectedIncome + forecast.expectedDebtReceivables : 0;
-  const mandatoryExpenses = forecast ? forecast.expectedRecurringExpense + forecast.expectedInstallments + forecast.expectedDebtRepayments : 0;
-  const forecastFlexible = forecast?.projectedFlexibleExpense ?? baselineRemaining;
-  const baseShortfall = cashFlow?.shortfall ?? Math.max(0, -projectedBalance);
-  const riskCashFlow = cautiousCashFlow ?? cashFlow;
-  const shortfall = Math.max(baseShortfall, riskCashFlow?.shortfall ?? 0);
-  const dailyFlexibleCap = Math.min(cashFlow?.dailyFlexibleAllowance ?? 0, cautiousCashFlow?.dailyFlexibleAllowance ?? Number.POSITIVE_INFINITY);
-  const flexibleAllowance = Math.min(forecastFlexible, dailyFlexibleCap * Math.max(0, forecast?.daysRemaining ?? 0));
-  const historicalDailySpend = historyTransactions.reduce((sum, transaction) => sum + transaction.amount, 0) / Math.max(1, historyMonths.length * 30);
-  const conservativeBalance = riskCashFlow?.endingBalance ?? projectedBalance;
-  const safeCashFloor = riskCashFlow ? Math.min(riskCashFlow.endingBalance, riskCashFlow.lowestBalance) : projectedBalance;
-  const recommendedReserve = Math.min(Math.max(0, safeCashFloor), historicalDailySpend * 7);
-  const savesTotal = Math.max(0, conservativeBalance - recommendedReserve);
-  const suggestedBudgets: SuggestedBudget[] = [];
-  const weightTotal = baselineRemaining || 1;
-
-  for (const category of expenseCategories) {
-    const baseline = baselineRemainingByCategory.get(category.id) ?? 0;
-    if (baseline <= 0) continue;
-    const spent = currentSpentByCategory.get(category.id) ?? 0;
-    const suggestedLimit = roundUpToThousand(spent + flexibleAllowance * (baseline / weightTotal));
-    if (suggestedLimit <= spent) continue;
-    suggestedBudgets.push({
-      categoryId: category.id,
-      categoryName: category.name,
-      suggestedLimit,
-      kind: categoryKind(category)
-    });
+  const fixedRemainingByCategory = new Map<string, number>();
+  for (const event of selectedFlow?.events ?? []) {
+    if (event.amount >= 0 || !event.categoryId || event.kind === "flexible") continue;
+    fixedRemainingByCategory.set(event.categoryId, (fixedRemainingByCategory.get(event.categoryId) ?? 0) + Math.abs(event.amount));
   }
-
+  const baselineRemaining = [...baselineRemainingByCategory.values()].reduce((sum, amount) => sum + amount, 0);
+  const suggestedBudgets: SuggestedBudget[] = [];
+  const plannedCategoryIds = new Set([...baselineRemainingByCategory.keys(), ...fixedRemainingByCategory.keys()]);
+  for (const categoryId of plannedCategoryIds) {
+    const category = categoryById.get(categoryId);
+    if (!category) continue;
+    const baseline = baselineRemainingByCategory.get(categoryId) ?? 0;
+    const fixedRemaining = fixedRemainingByCategory.get(categoryId) ?? 0;
+    const flexibleAllocation = baselineRemaining > 0 ? flexibleAllowance * (baseline / baselineRemaining) : 0;
+    const suggestedLimit = roundUpToThousand((allCurrentExpenseByCategory.get(categoryId) ?? 0) + fixedRemaining + flexibleAllocation);
+    if (suggestedLimit <= 0) continue;
+    suggestedBudgets.push({ categoryId, categoryName: category.name, suggestedLimit, kind: categoryKind(category) });
+  }
+  suggestedBudgets.sort((left, right) => right.suggestedLimit - left.suggestedLimit);
   const needsTotal = suggestedBudgets.filter(item => item.kind === "need").reduce((sum, item) => sum + item.suggestedLimit, 0);
   const wantsTotal = suggestedBudgets.filter(item => item.kind === "want").reduce((sum, item) => sum + item.suggestedLimit, 0);
-  const riskDate = riskCashFlow?.lowestBalanceDate ?? cashFlow?.lowestBalanceDate ?? null;
+  const mandatoryExpenses = (selectedFlow?.events ?? [])
+    .filter(event => event.amount < 0 && (event.kind === "installment" || event.kind === "debt" || (event.kind === "recurring" && isMandatoryPriority(event.priority))))
+    .reduce((sum, event) => sum + Math.abs(event.amount), 0);
+  const riskDate = selectedFlow?.lowestBalanceDate ?? null;
   const daysToRisk = daysUntil(riskDate);
   const priorityActions: SmartPlan["priorityActions"] = [];
-  if (shortfall > 0) {
+  if (!isBalanced) {
     priorityActions.push({
       level: "danger",
-      title: `Thiếu ${shortfall.toLocaleString("vi-VN")}đ trước ${riskDate ?? "cuối tháng"}`,
-      detail: daysToRisk <= 1
-        ? `Cần chuẩn bị ngay ${shortfall.toLocaleString("vi-VN")}đ trước khi đến hạn.`
-        : `Giảm hoặc dời ít nhất ${Math.ceil(shortfall / daysToRisk).toLocaleString("vi-VN")}đ mỗi ngày cho đến ngày rủi ro.`
+      title: `Kế hoạch khẩn cấp: vẫn thiếu ${moneyText(structuralShortfall)}đ`,
+      detail: `Dù dừng toàn bộ chi linh hoạt, dòng tiền vẫn không giữ được quỹ tối thiểu ${moneyText(reserveFloor)}đ. Cần bổ sung tiền, dời hoặc thương lượng nghĩa vụ đến hạn.`
     });
+  } else if ((selectedFlow?.shortfall ?? 0) > 0) {
     priorityActions.push({
       level: "warning",
-      title: "Bảo vệ các khoản thiết yếu và đến hạn",
-      detail: "Tạm dừng chi tùy chọn trước. Nếu vẫn không đủ, hãy chủ động liên hệ bên nhận thanh toán để trao đổi phương án phù hợp trước hạn."
-    });
-  } else if (riskCashFlow && riskCashFlow.lowestBalance < recommendedReserve) {
-    priorityActions.push({
-      level: "warning",
-      title: "Dòng tiền an toàn nhưng quỹ đệm mỏng",
-      detail: "Giữ lại khoản dự phòng và hạn chế tăng ngân sách cho đến sau các ngày nghĩa vụ lớn."
+      title: `Cần giảm ${moneyText(budgetReduction)}đ chi linh hoạt theo kế hoạch`,
+      detail: `Nếu giữ thói quen hiện tại, dòng tiền có thể thiếu ${moneyText(selectedFlow?.shortfall ?? 0)}đ. Hạn mức đề xuất giữ lại quỹ tối thiểu ${moneyText(reserveFloor)}đ.`
     });
   } else {
     priorityActions.push({
       level: "info",
-      title: "Dòng tiền đủ an toàn theo dự báo",
-      detail: "Giữ hạn mức đề xuất, sau đó mới chuyển phần tiền dư vào mục tiêu tiết kiệm."
+      title: "Dòng tiền đủ an toàn theo kịch bản đã chọn",
+      detail: `Hạn mức đề xuất vẫn giữ quỹ tối thiểu ${moneyText(reserveFloor)}đ trước các nghĩa vụ còn lại.`
     });
   }
-  priorityActions.push({
-    level: "info",
-    title: "Thứ tự khi cần siết chi",
-    detail: "Bảo vệ Thiết yếu trước, sau đó đến Cao, Bình thường và cuối cùng mới là Linh hoạt. Bạn có thể gắn mức này khi tạo khoản nợ, trả góp hoặc giao dịch lặp."
-  });
-  const upcomingObligations = (cashFlow?.events ?? [])
-    .filter(event => event.amount < 0 && event.kind !== "flexible")
+  if (structuralShortfall > 0) {
+    priorityActions.push({
+      level: "warning",
+      title: "Không thể cân bằng chỉ bằng ngân sách",
+      detail: "Ưu tiên dời khoản có thể thương lượng, bổ sung tiền hoặc xác nhận lại ngày nhận khoản phải thu; không xem đây là kế hoạch chi tiêu hoàn chỉnh."
+    });
+  }
+  const upcomingObligations = (selectedFlow?.events ?? [])
+    .filter(event => event.amount < 0 && (event.kind === "installment" || event.kind === "debt" || (event.kind === "recurring" && isMandatoryPriority(event.priority))))
     .map(event => {
-      const priority = event.priority ?? "normal";
-      return { date: event.date, label: event.label, amount: Math.abs(event.amount), priority, priorityLabel: PRIORITY_LABEL[priority] };
+      const priority = event.priority ?? "high";
+      return { date: event.date, label: event.label, amount: Math.ceil(Math.abs(event.amount)), priority, priorityLabel: PRIORITY_LABEL[priority] };
     })
     .sort((left, right) => PRIORITY_RANK[left.priority] - PRIORITY_RANK[right.priority] || left.date.localeCompare(right.date))
     .slice(0, 4);
-  const fallbackScenario = { endingBalance: projectedBalance, lowestBalance: projectedBalance, lowestBalanceDate: null, shortfall: Math.max(0, -projectedBalance) };
+  const fallbackScenario = { endingBalance: balance, lowestBalance: balance, lowestBalanceDate: null, shortfall: 0 };
   const scenarios: PlanScenario[] = [
-    { id: "base", label: "Cơ sở", description: "Theo nhịp chi hiện tại và khoản phải thu sau khi xét mức chắc chắn của từng khoản.", ...(cashFlow ?? fallbackScenario) },
-    { id: "cautious", label: "Thận trọng", description: "Chi linh hoạt cao hơn 25%; giảm thêm 50% khoản phải thu sau khi xét mức chắc chắn của từng khoản.", ...(cautiousCashFlow ?? fallbackScenario) },
-    { id: "rescue", label: "Cứu hộ", description: "Giảm 45% chi linh hoạt và không dựa vào khoản phải thu chưa nhận.", ...(rescueCashFlow ?? fallbackScenario) }
+    { id: "base", label: "Cơ sở", description: "Theo nhịp chi hiện tại và khoản phải thu sau khi xét mức chắc chắn.", ...(flowScenarios?.base ?? fallbackScenario) },
+    { id: "cautious", label: "Thận trọng", description: "Chi linh hoạt cao hơn 25%; giảm thêm 50% khoản phải thu sau khi xét độ chắc chắn.", ...(flowScenarios?.cautious ?? fallbackScenario) },
+    { id: "rescue", label: "Cứu hộ", description: "Giảm 45% chi linh hoạt và không dựa vào khoản phải thu. Các khoản lặp vẫn được tính cho đến khi bạn chủ động bỏ qua.", ...(flowScenarios?.rescue ?? fallbackScenario) }
   ];
-  const summary = shortfall > 0
-    ? `Kịch bản thận trọng có thể âm vào ${riskDate ?? "cuối tháng"}; kế hoạch đã hạ hạn mức chi linh hoạt để bù thiếu.`
-    : projectedBalance < 0
-    ? `Dự báo thiếu ${Math.abs(projectedBalance).toLocaleString("vi-VN")}đ. Kế hoạch đã giảm phần chi linh hoạt về mức có thể chi.`
-    : flexibleAllowance === 0
-    ? "Không còn dư địa chi linh hoạt sau các nghĩa vụ và dự báo hiện tại."
-    : "Hạn mức danh mục dựa trên mức chi thực tế, sau khi ưu tiên các nghĩa vụ đã dự báo.";
+  const summary = !isBalanced
+    ? `Kế hoạch chưa cân bằng: còn thiếu ${moneyText(structuralShortfall)}đ ngoài khả năng điều chỉnh ngân sách.`
+    : (selectedFlow?.shortfall ?? 0) > 0
+    ? `Giảm ${moneyText(budgetReduction)}đ so với xu hướng chi để giữ quỹ tối thiểu ${moneyText(reserveFloor)}đ.`
+    : "Hạn mức danh mục phù hợp với kịch bản đã chọn và vẫn giữ quỹ dự phòng tối thiểu.";
 
   return {
-    projectedBalance,
-    forecastIncome,
-    mandatoryExpenses,
-    flexibleAllowance,
-    recommendedReserve,
+    projectedBalance: forecast?.projectedBalance ?? balance,
+    forecastIncome: forecast ? Math.ceil(forecast.expectedIncome + forecast.expectedDebtReceivables) : 0,
+    mandatoryExpenses: Math.ceil(mandatoryExpenses),
+    trendFlexibleExpense,
+    flexibleAllowance: Math.floor(flexibleAllowance),
+    budgetReduction,
+    reserveFloor,
+    recommendedReserve: reserveFloor,
     suggestedBudgets,
     needsTotal,
     wantsTotal,
-    savesTotal,
+    savesTotal: isBalanced ? Math.max(0, Math.floor((selectedFlow?.endingBalance ?? 0) - reserveFloor)) : 0,
     summary,
     isCurrentMonth: Boolean(forecast),
-    lowestBalance: riskCashFlow?.lowestBalance ?? projectedBalance,
-    lowestBalanceDate: riskCashFlow?.lowestBalanceDate ?? null,
-    shortfall,
+    isBalanced,
+    selectedScenario,
+    defaultScenario,
+    unresolvedShortfall: structuralShortfall,
+    lowestBalance: selectedFlow?.lowestBalance ?? balance,
+    lowestBalanceDate: selectedFlow?.lowestBalanceDate ?? null,
+    shortfall: selectedFlow?.shortfall ?? 0,
     dailyFlexibleCap,
     behaviorConfidence: forecast?.behaviorConfidence ?? "low",
     scenarios,
