@@ -53,6 +53,7 @@ export interface Transaction {
   note?: string;
   recurringRuleId?: string;
   debtPaymentId?: string;
+  installmentId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -264,6 +265,7 @@ export const TransactionSchema = z.object({
   note: z.string().trim().max(2000).optional(),
   recurringRuleId: z.string().max(100).optional(),
   debtPaymentId: z.string().max(100).optional(),
+  installmentId: z.string().max(100).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

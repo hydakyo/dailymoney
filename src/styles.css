@@ -451,6 +451,9 @@ button:focus-visible, a:focus-visible {
   font-size: 16px;
   margin: 0;
 }
+.report-insights { grid-template-columns: repeat(3, 1fr); }
+.report-insights .card { padding: 12px; }
+.report-insights h3 { font-size: 14px; }
 .income { color: var(--success); }
 .expense { color: var(--danger); }
 .chart-wrap { height: 260px; }

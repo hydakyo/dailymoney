@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, ClipboardList, ReceiptText, Settings, Home, CirclePlus, WalletCards } from "lucide-react";
 import { decryptBackup, downloadFile, encryptBackup, transactionsCsv, type EncryptedBackup } from "./backup";
 import { db, exportBackup, restoreBackup } from "./db";
-import { currentMonth, newId, today } from "./domain";
+import { currentMonth, formatVnd, newId, today } from "./domain";
 import type { EditableTransactionKind, RecurringRule, Transaction } from "./domain";
 import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, monthForecast, monthTotals } from "./finance";
 import { addMonths } from "./utils";
@@ -270,6 +270,7 @@ export default function App() {
             goalEntries={data.goalEntries}
             rules={data.rules}
             installments={data.installments}
+            transactions={data.transactions}
             onAdd={section => {
               if (section === "budgets") setModal("budget");
               if (section === "debts") setModal("debt");
@@ -309,6 +310,16 @@ export default function App() {
               await refresh();
             }}
             onDeleteInstallment={async id => { await db.installments.delete(id); await refresh(); }}
+            onPayInstallment={async installment => {
+              if (!window.confirm(`Ghi chi ${formatVnd(installment.monthlyAmount)} cho ${installment.name}?`)) return;
+              const now = new Date().toISOString();
+              await db.transaction("rw", db.transactions, db.installments, async () => {
+                await db.transactions.add({ id: newId(), kind: "expense", amount: installment.monthlyAmount, categoryId: installment.categoryId, walletId: primaryWalletId, date: today(), note: `Trả góp: ${installment.name}`, installmentId: installment.id, createdAt: now, updatedAt: now });
+                const paidCount = await db.transactions.where("installmentId").equals(installment.id).count();
+                if (paidCount >= installment.totalMonths) await db.installments.update(installment.id, { closedAt: now, updatedAt: now });
+              });
+              await refresh();
+            }}
           />
         )}
         {tab === "reports" && (

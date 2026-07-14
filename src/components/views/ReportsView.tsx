@@ -62,6 +62,12 @@ export function ReportsView({
 }) {
   const [chartType, setChartType] = useState<"bar" | "doughnut">("doughnut");
   const totals = monthTotals(transactions, month);
+  const previousTotals = monthTotals(transactions, addMonths(month, -1));
+  const expenseChange = previousTotals.expense ? ((totals.expense - previousTotals.expense) / previousTotals.expense) * 100 : null;
+  const savingsRate = totals.income ? ((totals.income - totals.expense) / totals.income) * 100 : null;
+  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5)), 0).getDate();
+  const dayCount = Math.max(1, Math.min(daysInMonth, new Date().getFullYear() === Number(month.slice(0, 4)) && new Date().getMonth() + 1 === Number(month.slice(5)) ? new Date().getDate() : daysInMonth));
+  const dailyExpense = totals.expense / dayCount;
   
   const rows = Array.from(categories.values())
     .filter(category => category.kind === "expense")
@@ -102,6 +108,20 @@ export function ReportsView({
         <Card>
           <p>Tổng chi</p>
           <h3 className="expense">{formatVnd(totals.expense)}</h3>
+        </Card>
+      </div>
+      <div className="stat-grid report-insights">
+        <Card>
+          <p>So với tháng trước</p>
+          <h3 className={expenseChange !== null && expenseChange > 0 ? "expense" : "income"}>{expenseChange === null ? "Chưa có dữ liệu" : `${expenseChange > 0 ? "+" : ""}${expenseChange.toFixed(0)}% chi tiêu`}</h3>
+        </Card>
+        <Card>
+          <p>Tỷ lệ tiết kiệm</p>
+          <h3 className={savingsRate !== null && savingsRate < 0 ? "expense" : "income"}>{savingsRate === null ? "Chưa có thu nhập" : `${savingsRate.toFixed(0)}%`}</h3>
+        </Card>
+        <Card>
+          <p>Chi trung bình/ngày</p>
+          <h3>{formatVnd(dailyExpense)}</h3>
         </Card>
       </div>
       

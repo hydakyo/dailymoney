@@ -1,5 +1,5 @@
 import { Plus, Trash2, Landmark, HandCoins, Goal, CalendarDays, Smartphone, Copy } from "lucide-react";
-import type { Category, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal } from "../../domain";
+import type { Category, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction } from "../../domain";
 import { formatVnd } from "../../domain";
 import { debtOutstanding, goalBalance } from "../../finance";
 import type { BudgetProgressItem } from "../../finance";
@@ -19,6 +19,7 @@ export function PlansView({
   goalEntries,
   rules,
   installments,
+  transactions,
   onAdd,
   onPay,
   onContribute,
@@ -29,7 +30,8 @@ export function PlansView({
   onDeleteDebt,
   onDeleteGoal,
   onDeleteRule,
-  onDeleteInstallment
+  onDeleteInstallment,
+  onPayInstallment
 }: {
   section: PlanSection;
   onSection: (value: PlanSection) => void;
@@ -41,6 +43,7 @@ export function PlansView({
   goalEntries: GoalEntry[];
   rules: RecurringRule[];
   installments: Installment[];
+  transactions: Transaction[];
   onAdd: (section: PlanSection) => void;
   onSmartPlan: () => void;
   onCopyPreviousBudgets: () => Promise<void>;
@@ -52,6 +55,7 @@ export function PlansView({
   onDeleteGoal: (id: string) => Promise<void>;
   onDeleteRule: (id: string) => Promise<void>;
   onDeleteInstallment: (id: string) => Promise<void>;
+  onPayInstallment: (installment: Installment) => Promise<void>;
 }) {
   const labels: Record<PlanSection, string> = {
     budgets: "Ngân sách",
@@ -152,23 +156,17 @@ export function PlansView({
         <div className="stack">
           {installments.length ? (
             installments.map(item => {
-              // Calculate how many months have passed since start date
-              const [startYear, startMonth] = item.startDate.split("-").map(Number);
+              const paidMonths = transactions.filter(transaction => transaction.installmentId === item.id).length;
               const now = new Date();
-              let monthsPassed = (now.getFullYear() - startYear) * 12 + ((now.getMonth() + 1) - startMonth);
               const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
               const effectiveDueDate = Math.min(item.dueDate, daysInCurrentMonth);
-              if (now.getDate() >= effectiveDueDate) {
-                monthsPassed += 1;
-              }
-              const paidMonths = Math.max(0, Math.min(item.totalMonths, monthsPassed));
               const remainingMonths = item.totalMonths - paidMonths;
 
               return (
                 <Card key={item.id} className="plan-card">
                   <div className="row-between">
                     <strong>{item.name}</strong>
-                    <span className="pill expense">Hạn ngày {item.dueDate}</span>
+                    <span className={paidMonths >= item.totalMonths ? "pill" : "pill expense"}>{paidMonths >= item.totalMonths ? "Đã hoàn tất" : "Cần xác nhận"}</span>
                   </div>
                   <h3>{formatVnd(item.monthlyAmount)} <small className="muted">/ tháng</small></h3>
                   <div className="progress" style={{ marginTop: 12 }}>
@@ -180,7 +178,8 @@ export function PlansView({
                     />
                   </div>
                   <div className="plan-actions" style={{ marginTop: 8 }}>
-                    <p>Đã trả: {paidMonths}/{item.totalMonths} tháng</p>
+                    <p>Đã xác nhận: {paidMonths}/{item.totalMonths} kỳ · Hạn ngày {item.dueDate}</p>
+                    {paidMonths < item.totalMonths && <button className="soft" onClick={() => void onPayInstallment(item)}>Xác nhận trả kỳ này</button>}
                     <button
                       className="icon-button subtle"
                       aria-label="Xóa khoản trả góp"
@@ -261,6 +260,8 @@ export function PlansView({
           {goals.length ? (
             goals.map(item => {
               const saved = goalBalance(item, goalEntries);
+              const monthsRemaining = item.targetDate ? Math.max(1, (Number(item.targetDate.slice(0, 4)) - new Date().getFullYear()) * 12 + Number(item.targetDate.slice(5, 7)) - (new Date().getMonth() + 1) + 1) : null;
+              const monthlyNeeded = monthsRemaining ? Math.max(0, item.target - saved) / monthsRemaining : null;
               return (
                 <Card key={item.id} className="plan-card">
                   <div className="row-between">
@@ -280,6 +281,7 @@ export function PlansView({
                   <p>
                     {formatVnd(saved)} / {formatVnd(item.target)}
                   </p>
+                  {monthlyNeeded !== null && <p className="form-note">Để đạt vào {item.targetDate}, cần dành khoảng {formatVnd(monthlyNeeded)} mỗi tháng.</p>}
                   <div className="plan-actions">
                     <button className="soft" onClick={() => onContribute(item.id)}>
                       Ghi đóng góp
