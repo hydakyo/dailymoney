@@ -220,9 +220,17 @@ export interface BackupPayloadV3 {
   installments: Installment[];
 }
 
-const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const MonthSchema = z.string().regex(/^\d{4}-\d{2}$/);
-const MoneySchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}, "Ngày không hợp lệ");
+const MonthSchema = z.string().regex(/^\d{4}-\d{2}$/).refine(value => {
+  const month = Number(value.slice(5, 7));
+  return month >= 1 && month <= 12;
+}, "Tháng không hợp lệ");
+const NonnegativeMoneySchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const MoneySchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const SignedMoneySchema = z.number().int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
 
 export const TransactionKindSchema = z.enum(["income", "expense", "transfer"]);
@@ -239,7 +247,7 @@ export const AppSettingsSchema = z.object({
   lockEnabled: z.boolean().catch(false),
   reminderEnabled: z.boolean().optional(),
   reminderTime: z.string().max(10).optional(),
-  minimumReserve: MoneySchema.optional(),
+  minimumReserve: NonnegativeMoneySchema.optional(),
   theme: z.enum(["system", "light", "dark"]).optional(),
   lastBackupAt: z.string().optional(),
   createdAt: z.string(),

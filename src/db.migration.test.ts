@@ -45,6 +45,27 @@ async function disposeFixture(name: string, upgraded: DailyMoneyDatabase) {
 }
 
 describe("installment database migrations", () => {
+  it("deduplicates legacy budgets before enforcing one budget per month and category", async () => {
+    const name = `daily-money-budget-migration-${crypto.randomUUID()}`;
+    const legacy = new Dexie(name);
+    legacy.version(10).stores({ budgets: "id, [month+categoryId], month, categoryId" });
+    await legacy.open();
+    await legacy.table("budgets").bulkAdd([
+      { id: "old", categoryId: "food", month: "2026-07", limit: 100_000, createdAt: "2026-07-01", updatedAt: "2026-07-01" },
+      { id: "new", categoryId: "food", month: "2026-07", limit: 200_000, createdAt: "2026-07-02", updatedAt: "2026-07-02" }
+    ]);
+    legacy.close();
+
+    const upgraded = new DailyMoneyDatabase(name);
+    await upgraded.open();
+    try {
+      expect(await upgraded.budgets.where("[month+categoryId]").equals(["2026-07", "food"]).count()).toBe(1);
+      await expect(upgraded.budgets.add({ id: "duplicate", categoryId: "food", month: "2026-07", limit: 300_000, createdAt: "", updatedAt: "" })).rejects.toThrow();
+    } finally {
+      await disposeFixture(name, upgraded);
+    }
+  });
+
   it("keeps every linked payment when upgrading a version 4 database with same-month catch-up payments", async () => {
     const { name, upgraded } = await upgradeFixture(4, [
       { ...payment("may", "2026-08-01"), createdAt: "2026-08-01T10:00:00.000Z" },

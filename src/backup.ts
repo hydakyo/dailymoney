@@ -100,8 +100,12 @@ export function downloadFile(name: string, body: string, type: string) {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = name;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
+  // Safari can consume the click asynchronously; revoking immediately can yield an empty download.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 function neutralizeFormula(value: string) {

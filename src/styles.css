@@ -180,6 +180,22 @@ button:focus-visible, a:focus-visible {
   position: relative;
 }
 
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--brand-light);
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.update-banner span { flex: 1; }
+.update-banner button:not(.icon-button) { border: 0; border-radius: 8px; padding: 7px 10px; background: var(--brand-primary); color: white; font-weight: 700; }
+
 .topbar, .row-between, .settings-row, .settings-action, .modal-head, .due-card, .transaction, .section-head, .month-switch, .totals, .kind-switch {
   display: flex;
   align-items: center;

@@ -99,6 +99,17 @@ export function BudgetForm({ budget, categories, month, onSubmit, onClose }: { b
   const [categoryId, setCategoryId] = useState(budget?.categoryId ?? expenses[0]?.id ?? "");
   const [amount, setAmount] = useState(budget ? String(budget.limit) : "");
   const [selectedMonth, setSelectedMonth] = useState(budget?.month ?? month);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (submitting) return;
+    const limit = Number(amount);
+    if (!Number.isSafeInteger(limit) || limit <= 0) return setError("Giới hạn phải là số nguyên dương hợp lệ.");
+    setSubmitting(true); setError("");
+    try { await onSubmit({ categoryId, month: selectedMonth, limit }); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Không thể lưu ngân sách."); }
+    finally { setSubmitting(false); }
+  };
   return (
     <Modal title={budget ? "Sửa ngân sách" : "Đặt ngân sách"} onClose={onClose}>
       <label className="field">
@@ -112,8 +123,9 @@ export function BudgetForm({ budget, categories, month, onSubmit, onClose }: { b
         </select>
       </label>
       <AmountInput label="Giới hạn chi" value={amount} onChange={setAmount} />
-      <button className="primary full" disabled={!amount} onClick={() => {
-        void onSubmit({ categoryId, month: selectedMonth, limit: Number(amount) });
+      {error && <p className="form-error">{error}</p>}
+      <button className="primary full" disabled={!amount || !categoryId || submitting} onClick={() => {
+        void submit();
       }}>{budget ? "Lưu thay đổi" : "Lưu ngân sách"}</button>
     </Modal>
   );
@@ -208,6 +220,15 @@ export function GoalEntryForm({ goal, onSubmit, onClose }: { goal: SavingsGoal; 
   const [amount, setAmount] = useState("");
   const [direction, setDirection] = useState<GoalEntry["direction"]>("contribution");
   const [date, setDate] = useState(today());
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (submitting) return;
+    setSubmitting(true); setError("");
+    try { await onSubmit({ amount: Number(amount), direction, date }); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Không thể lưu đóng góp."); }
+    finally { setSubmitting(false); }
+  };
   return (
     <Modal title={goal.name} onClose={onClose}>
       <div className="kind-switch">
@@ -217,7 +238,8 @@ export function GoalEntryForm({ goal, onSubmit, onClose }: { goal: SavingsGoal; 
       <AmountInput value={amount} onChange={setAmount} />
       <label className="field"><span>Ngày</span><input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
       <p className="form-note">Khoản này chỉ theo dõi tiến độ mục tiêu, không làm thay đổi số dư.</p>
-      <button className="primary full" disabled={!amount} onClick={() => void onSubmit({ amount: Number(amount), direction, date })}>Lưu</button>
+      {error && <p className="form-error">{error}</p>}
+      <button className="primary full" disabled={!amount || Number(amount) <= 0 || submitting} onClick={() => void submit()}>{submitting ? "Đang lưu..." : "Lưu"}</button>
     </Modal>
   );
 }
@@ -230,6 +252,8 @@ export function InstallmentForm({ installment, scheduleLocked = false, categorie
   const [dueDate, setDueDate] = useState(String(installment?.dueDate ?? 15));
   const [categoryId, setCategoryId] = useState(installment?.categoryId ?? "");
   const [priority, setPriority] = useState<ObligationPriority>(installment?.priority ?? "high");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   const expenseCategories = React.useMemo(() => categories.filter(c => c.kind === "expense" && !c.archived), [categories]);
   
@@ -266,21 +290,30 @@ export function InstallmentForm({ installment, scheduleLocked = false, categorie
       </label>
       <p className="form-note">Mỗi tháng bạn sẽ trả: {totalAmount && totalMonths ? formatVnd(Number(totalAmount) / Number(totalMonths)) : "0 đ"}{scheduleLocked ? " · Lịch gốc đã khóa vì đã có kỳ thanh toán." : ""}</p>
       
-      <button className="primary full" disabled={!name || !totalAmount || !totalMonths || !categoryId || !dueDate} onClick={() => {
-        let validDueDate = Number(dueDate);
+      {error && <p className="form-error">{error}</p>}
+      <button className="primary full" disabled={!name || !totalAmount || !totalMonths || !categoryId || !dueDate || submitting} onClick={() => {
+        if (submitting) return;
+        let validDueDate = Math.floor(Number(dueDate));
         if (isNaN(validDueDate) || validDueDate < 1) validDueDate = 1;
         if (validDueDate > 31) validDueDate = 31;
+        const amount = Number(totalAmount);
+        const months = Math.floor(Number(totalMonths));
+        if (!Number.isSafeInteger(amount) || amount <= 0 || !Number.isSafeInteger(months) || months < 1 || amount < months) {
+          setError("Tổng tiền và số kỳ không hợp lệ; mỗi kỳ cần ít nhất 1 đồng.");
+          return;
+        }
+        setSubmitting(true); setError("");
         void onSubmit({ 
           name, 
-          totalAmount: Number(totalAmount), 
-          monthlyAmount: Math.round(Number(totalAmount) / Number(totalMonths)), 
-          totalMonths: Number(totalMonths), 
+          totalAmount: amount,
+          monthlyAmount: Math.floor(amount / months),
+          totalMonths: months,
           startDate, 
           dueDate: validDueDate, 
           priority,
           categoryId, 
           walletId: installment?.walletId ?? primaryWalletId
-        });
+        }).catch(reason => setError(reason instanceof Error ? reason.message : "Không thể lưu khoản trả góp.")).finally(() => setSubmitting(false));
       }}>
         {installment ? "Lưu thay đổi" : "Tạo khoản trả góp"}
       </button>
@@ -288,7 +321,7 @@ export function InstallmentForm({ installment, scheduleLocked = false, categorie
   );
 }
 
-export function RecurringForm({ rule, categories, primaryWalletId, onSubmit, onClose }: { rule?: RecurringRule; categories: Category[]; primaryWalletId: string; onSubmit: (value: Omit<RecurringRule, "id" | "active" | "createdAt" | "updatedAt">) => Promise<void>; onClose: () => void }) {
+export function RecurringForm({ rule, categories, primaryWalletId, onSubmit: saveRecurring, onClose }: { rule?: RecurringRule; categories: Category[]; primaryWalletId: string; onSubmit: (value: Omit<RecurringRule, "id" | "active" | "createdAt" | "updatedAt">) => Promise<void>; onClose: () => void }) {
   const [kind, setKind] = useState<EditableTransactionKind>(rule?.kind === "income" ? "income" : "expense");
   const [amount, setAmount] = useState(rule ? String(rule.amount) : "");
   const [categoryId, setCategoryId] = useState(rule?.categoryId ?? "");
@@ -297,6 +330,14 @@ export function RecurringForm({ rule, categories, primaryWalletId, onSubmit, onC
   const [endDate, setEndDate] = useState(rule?.endDate ?? "");
   const [note, setNote] = useState(rule?.note ?? "");
   const [priority, setPriority] = useState<ObligationPriority>(rule?.priority ?? "normal");
+  const submittingRef = React.useRef(false);
+  const submitOnce = async (value: Omit<RecurringRule, "id" | "active" | "createdAt" | "updatedAt">) => {
+    if (submittingRef.current) return;
+    if (!Number.isSafeInteger(value.amount) || value.amount <= 0) throw new Error("Số tiền lặp lại không hợp lệ.");
+    submittingRef.current = true;
+    try { await saveRecurring(value); } finally { submittingRef.current = false; }
+  };
+  const onSubmit = submitOnce;
   const relevant = React.useMemo(() => categories.filter(category => category.kind === kind && !category.archived), [categories, kind]);
   React.useEffect(() => {
     if (!relevant.some(category => category.id === categoryId)) setCategoryId(relevant[0]?.id ?? "");
@@ -350,10 +391,17 @@ export function BackupForm({ onDone, onClose }: { onDone: (password: string) => 
   );
 }
 
-export function RestoreForm({ onRestore, onClose, inputRef }: { inputRef: React.RefObject<HTMLInputElement | null>; onRestore: (file: File, password: string) => Promise<void>; onClose: () => void }) {
+export function RestoreForm({ onRestore: performRestore, onClose, inputRef }: { inputRef: React.RefObject<HTMLInputElement | null>; onRestore: (file: File, password: string) => Promise<void>; onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const submittingRef = React.useRef(false);
+  const onRestore = async (selectedFile: File, value: string) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    try { await performRestore(selectedFile, value); }
+    finally { submittingRef.current = false; }
+  };
   return (
     <Modal title="Khôi phục backup" onClose={onClose}>
       <label className="file-field"><Upload size={20} /><span>{file?.name ?? "Chọn file .dailymoney"}</span><input type="file" accept="application/json,.dailymoney" onChange={event => setFile(event.target.files?.[0] ?? null)} ref={inputRef as React.RefObject<HTMLInputElement>} /></label>
@@ -364,10 +412,17 @@ export function RestoreForm({ onRestore, onClose, inputRef }: { inputRef: React.
   );
 }
 
-export function ReminderForm({ settings, onSave, onClose }: { settings: AppSettings; onSave: (enabled: boolean, time: string) => Promise<void>; onClose: () => void }) {
+export function ReminderForm({ settings, onSave: persistReminder, onClose }: { settings: AppSettings; onSave: (enabled: boolean, time: string) => Promise<void>; onClose: () => void }) {
   const [enabled, setEnabled] = useState(settings.reminderEnabled ?? false);
   const [time, setTime] = useState(settings.reminderTime ?? "20:00");
   const [error, setError] = useState("");
+  const submittingRef = React.useRef(false);
+  const onSave = async (nextEnabled: boolean, nextTime: string) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    try { await persistReminder(nextEnabled, nextTime); }
+    finally { submittingRef.current = false; }
+  };
   const native = isNativeApp();
   if (!native && !supportsWebPush()) return (
     <Modal title="Nhắc ghi chép hằng ngày" onClose={onClose}>
@@ -417,6 +472,22 @@ export function CategoryManager({ categories, onChange, onClose }: { categories:
   const isDuplicate = (value: string, exceptId?: string) => categories.some(category =>
     category.id !== exceptId && category.kind === kind && category.name.toLocaleLowerCase("vi-VN") === value.trim().toLocaleLowerCase("vi-VN")
   );
+
+  const toggleCategoryArchive = async (category: Category, archived: boolean) => {
+    if (archived) {
+      const [activeRule, activeInstallment] = await Promise.all([
+        db.recurringRules.filter(rule => rule.categoryId === category.id && rule.active).first(),
+        db.installments.filter(item => item.categoryId === category.id && !item.closedAt).first()
+      ]);
+      if (activeRule || activeInstallment) {
+        setError("Danh mục đang được dùng cho lịch lặp hoặc trả góp đang mở. Hãy đổi danh mục của nghĩa vụ đó trước.");
+        return;
+      }
+    }
+    await db.categories.update(category.id, { archived });
+    setError("");
+    await onChange();
+  };
 
   const addCategory = async () => {
     const trimmed = name.trim();
@@ -474,7 +545,7 @@ export function CategoryManager({ categories, onChange, onClose }: { categories:
               <i style={{ background: category.color }} /><span>{category.name}</span>
               {!showArchived && category.kind === "expense" && <select aria-label={`Nhóm tài chính ${category.name}`} value={category.financialClass ?? "discretionary"} onChange={event => void (async () => { await db.categories.update(category.id, { financialClass: event.target.value as FinancialClass }); await onChange(); })()}><option value="essential">Thiết yếu</option><option value="discretionary">Tùy chọn</option></select>}
               {!showArchived && <button className="icon-button subtle" aria-label={`Sửa ${category.name}`} onClick={() => startEditing(category)}><Pencil size={15} /></button>}
-              {!category.builtIn && <button className="icon-button subtle" aria-label={showArchived ? `Khôi phục ${category.name}` : `Lưu trữ ${category.name}`} onClick={() => void (async () => { await db.categories.update(category.id, { archived: !showArchived }); await onChange(); })()}>{showArchived ? <ArchiveRestore size={15} /> : <Archive size={15} />}</button>}
+              {!category.builtIn && <button className="icon-button subtle" aria-label={showArchived ? `Khôi phục ${category.name}` : `Lưu trữ ${category.name}`} onClick={() => void toggleCategoryArchive(category, !showArchived)}>{showArchived ? <ArchiveRestore size={15} /> : <Archive size={15} />}</button>}
             </>}
           </div>
         ))}

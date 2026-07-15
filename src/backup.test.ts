@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import "fake-indexeddb/auto";
 import { decryptBackup, encryptBackup } from "./backup";
-import type { BackupPayload, BackupPayloadV1, BackupPayloadV2, BackupPayloadV3 } from "./domain";
+import { BackupSchema, type BackupPayload, type BackupPayloadV1, type BackupPayloadV2, type BackupPayloadV3 } from "./domain";
 
 const settings = { id: "settings" as const, onboardingComplete: true, openingBalance: 0, currency: "VND" as const, lockEnabled: false, createdAt: "", updatedAt: "" };
 
@@ -33,7 +33,16 @@ const richPayloadV3: BackupPayloadV3 = {
   installments: [{ id: "installment", name: "Điện thoại", totalAmount: 12_000_000, monthlyAmount: 1_000_000, totalMonths: 12, startDate: "2026-07-01", dueDate: 15, categoryId: "shopping", walletId: "wallet", createdAt: "", updatedAt: "" }]
 };
 
+const wallet = { id: "wallet", name: "Ví chính", icon: "Wallet", color: "#000", initialBalance: 0, archived: false, createdAt: "", updatedAt: "" };
+const shopping = { id: "shopping", kind: "expense" as const, name: "Mua sắm", icon: "Bag", color: "#000", archived: false, builtIn: true, createdAt: "" };
+const debtTransaction = { id: "transaction", kind: "expense" as const, amount: 500_000, categoryId: "shopping", walletId: "wallet", date: "2026-07-14", createdAt: "", updatedAt: "" };
+
 describe("encrypted backup", () => {
+  it("rejects zero money and impossible calendar dates", () => {
+    expect(BackupSchema.safeParse({ ...payloadV3, wallets: [wallet], categories: [shopping], transactions: [{ ...debtTransaction, amount: 0 }] }).success).toBe(false);
+    expect(BackupSchema.safeParse({ ...payloadV3, wallets: [wallet], categories: [shopping], transactions: [{ ...debtTransaction, date: "2026-99-99" }] }).success).toBe(false);
+  });
+
   it.each([payloadV1, payloadV2, payloadV3])(
     "encrypts and restores schema version %o",
     async payload => {
@@ -58,23 +67,47 @@ describe("encrypted backup", () => {
   });
 });
 
-import { db, exportBackup, restoreBackup } from "./db";
+import { db, exportBackup, prepareRestorePayload, restoreBackup } from "./db";
 
 describe("E2E Restore", () => {
+  it("turns an invalid restored PIN lock off instead of locking the user out", () => {
+    const prepared = prepareRestorePayload({ ...payloadV3, wallets: [wallet], settings: { ...settings, lockEnabled: true } });
+    expect(prepared.settings).toMatchObject({ lockEnabled: false, pinHash: undefined, pinSalt: undefined });
+  });
+
+  it("rejects orphan references and duplicate monthly budgets before clearing device data", () => {
+    expect(() => prepareRestorePayload({
+      ...payloadV3,
+      wallets: [wallet],
+      categories: [shopping],
+      transactions: [{ ...debtTransaction, categoryId: "missing-category" }]
+    })).toThrow("danh mục không tồn tại");
+    expect(() => prepareRestorePayload({
+      ...payloadV3,
+      wallets: [wallet],
+      categories: [shopping],
+      budgets: [
+        { id: "one", categoryId: "shopping", month: "2026-07", limit: 100_000, createdAt: "", updatedAt: "" },
+        { id: "two", categoryId: "shopping", month: "2026-07", limit: 200_000, createdAt: "", updatedAt: "" }
+      ]
+    })).toThrow("ngân sách trùng");
+  });
+
   it("exports, clears and restores the complete database", async () => {
+    const completePayload = { ...richPayloadV3, wallets: [wallet], categories: [shopping], transactions: [debtTransaction] };
     // Seed full database
-    await db.settings.put(richPayloadV3.settings);
-    if (richPayloadV3.categories) await db.categories.bulkPut(richPayloadV3.categories);
-    if (richPayloadV3.transactions) await db.transactions.bulkPut(richPayloadV3.transactions);
-    if (richPayloadV3.budgets) await db.budgets.bulkPut(richPayloadV3.budgets);
-    if (richPayloadV3.recurringRules) await db.recurringRules.bulkPut(richPayloadV3.recurringRules);
-    if (richPayloadV3.recurringOccurrences) await db.recurringOccurrences.bulkPut(richPayloadV3.recurringOccurrences);
-    if (richPayloadV3.debts) await db.debts.bulkPut(richPayloadV3.debts);
-    if (richPayloadV3.debtPayments) await db.debtPayments.bulkPut(richPayloadV3.debtPayments);
-    if (richPayloadV3.goals) await db.goals.bulkPut(richPayloadV3.goals);
-    if (richPayloadV3.goalEntries) await db.goalEntries.bulkPut(richPayloadV3.goalEntries);
-    if (richPayloadV3.wallets) await db.wallets.bulkPut(richPayloadV3.wallets);
-    if (richPayloadV3.installments) await db.installments.bulkPut(richPayloadV3.installments);
+    await db.settings.put(completePayload.settings);
+    await db.categories.bulkPut(completePayload.categories);
+    await db.transactions.bulkPut(completePayload.transactions);
+    await db.budgets.bulkPut(completePayload.budgets);
+    await db.recurringRules.bulkPut(completePayload.recurringRules);
+    await db.recurringOccurrences.bulkPut(completePayload.recurringOccurrences);
+    await db.debts.bulkPut(completePayload.debts);
+    await db.debtPayments.bulkPut(completePayload.debtPayments);
+    await db.goals.bulkPut(completePayload.goals);
+    await db.goalEntries.bulkPut(completePayload.goalEntries);
+    await db.wallets.bulkPut(completePayload.wallets);
+    await db.installments.bulkPut(completePayload.installments);
 
     const original = await exportBackup();
     const encrypted = await encryptBackup(original, "mot-mat-khau-dai");
@@ -101,7 +134,8 @@ describe("E2E Restore", () => {
     ];
     await restoreBackup({
       ...payloadV3,
-      wallets: [{ id: "wallet", name: "Ví chính", icon: "Wallet", color: "#000", initialBalance: 0, archived: false, createdAt: "", updatedAt: "" }],
+      wallets: [wallet],
+      categories: [shopping],
       installments: [legacyInstallment],
       transactions: legacyTransactions
     });

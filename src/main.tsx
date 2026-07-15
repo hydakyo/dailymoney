@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 import App from "./App";
+import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import "./styles.css";
 
 // Daily Money is installed as an app-like, fixed-scale interface on iPhone.
@@ -18,12 +19,12 @@ document.addEventListener("touchmove", blockPinchZoom, { passive: false });
 const updateServiceWorker = registerSW({
   immediate: true,
   onNeedRefresh() {
-    if (window.confirm("Daily Money có bản cập nhật mới. Tải lại ngay?")) updateServiceWorker(true);
+    window.dispatchEvent(new CustomEvent("daily-money-update-available", { detail: () => updateServiceWorker(true) }));
   }
 });
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <AppErrorBoundary><App /></AppErrorBoundary>
   </StrictMode>
 );

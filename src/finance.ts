@@ -88,6 +88,15 @@ export function oldestUnpaidInstallmentPeriod(installment: Installment, transact
   return installmentPeriods(installment).find(period => !paidPeriods.has(period));
 }
 
+/** Keeps the payment schedule exact when totalAmount is not divisible by totalMonths. */
+export function installmentPaymentAmount(installment: Installment, period: string) {
+  const periods = installmentPeriods(installment);
+  const index = periods.indexOf(period);
+  if (index < 0) throw new Error("Kỳ trả góp không hợp lệ.");
+  if (index < periods.length - 1) return installment.monthlyAmount;
+  return installment.totalAmount - installment.monthlyAmount * (installment.totalMonths - 1);
+}
+
 export function collectionConfidenceMultiplier(debt: Debt) {
   if (debt.kind !== "receivable") return 1;
   // Backups created before collection confidence existed must stay conservative.

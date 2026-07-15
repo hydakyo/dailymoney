@@ -4,7 +4,7 @@ import { decryptBackup, downloadFile, encryptBackup, transactionsCsv, type Encry
 import { db, exportBackup, restoreBackup } from "./db";
 import { currentMonth, formatVnd, newId, today } from "./domain";
 import type { EditableTransactionKind, RecurringRule, Transaction } from "./domain";
-import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, monthForecast, monthTotals, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "./finance";
+import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, installmentPaymentAmount, monthForecast, monthTotals, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "./finance";
 import { addMonths } from "./utils";
 import { clearDailyReminder, isNativeApp, setDailyReminder } from "./notifications";
 import { clearWebPushReminder, setWebPushReminder, supportsWebPush } from "./web-push";
@@ -76,6 +76,7 @@ export default function App() {
   const [selectedRecurringRuleId, setSelectedRecurringRuleId] = useState<string | null>(null);
   const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
   const [transactionInitialDate, setTransactionInitialDate] = useState<string | null>(null);
+  const [updateNow, setUpdateNow] = useState<(() => void) | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -97,6 +98,15 @@ export default function App() {
     if (theme === "system") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.dataset.theme = theme;
   }, [data.settings.theme]);
+
+  useEffect(() => {
+    const onUpdateAvailable = (event: Event) => {
+      const action = (event as CustomEvent<unknown>).detail;
+      if (typeof action === "function") setUpdateNow(() => action as () => void);
+    };
+    window.addEventListener("daily-money-update-available", onUpdateAvailable);
+    return () => window.removeEventListener("daily-money-update-available", onUpdateAvailable);
+  }, []);
 
   const totals = useMemo(() => monthTotals(data.transactions, month), [data.transactions, month]);
   const balance = useMemo(() => totalBalance(data.wallets, data.transactions), [data.wallets, data.transactions]);
@@ -145,6 +155,7 @@ export default function App() {
 
   const addTransaction = async (input: TransactionInput) => {
     const now = new Date().toISOString();
+    if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error("Số tiền giao dịch không hợp lệ.");
     requireMatchingActiveCategory(data.categories, input);
     const transactionValues = normalizeEditableTransaction(input, primaryWalletId);
     if (input.id) {
@@ -211,30 +222,36 @@ export default function App() {
       return;
     }
     await db.transaction("rw", db.recurringOccurrences, db.transactions, async () => {
+      const current = await db.recurringOccurrences.get(id);
+      if (!current || current.status !== "pending") return;
       if (skip) {
         await db.recurringOccurrences.update(id, { status: "skipped", updatedAt: now });
-      } else {
-        const transactionId = newId();
+        return;
+      }
+      const transactionId = `recurring:${current.ruleId}:${current.dueDate}`;
+      const existing = await db.transactions.get(transactionId);
+      if (!existing) {
         await db.transactions.add({
           id: transactionId,
           kind: rule.kind,
           amount: rule.amount,
           categoryId: rule.categoryId,
           walletId: primaryWalletId,
-          date: occurrence.dueDate,
+          date: current.dueDate,
           note: rule.note,
           recurringRuleId: rule.id,
           createdAt: now,
           updatedAt: now
         });
-        await db.recurringOccurrences.update(id, { status: "confirmed", transactionId, updatedAt: now });
       }
+      await db.recurringOccurrences.update(id, { status: "confirmed", transactionId, updatedAt: now });
     });
     await refresh();
   };
 
   return (
     <main className="app-shell">
+      {updateNow && <div className="update-banner" role="status"><span>Có phiên bản mới — hãy cập nhật sau khi lưu xong dữ liệu đang nhập.</span><button onClick={updateNow}>Cập nhật ngay</button><button className="icon-button subtle" aria-label="Ẩn thông báo cập nhật" onClick={() => setUpdateNow(null)}>×</button></div>}
       <header className="topbar">
         <div>
           <p className="eyebrow">DAILY MONEY</p>
@@ -413,7 +430,8 @@ export default function App() {
               await db.transaction("rw", db.transactions, db.installments, async () => {
                 const paidForPeriod = await db.transactions.where("[installmentId+installmentPeriod]").equals([installment.id, installmentPeriod]).first();
                 if (paidForPeriod) throw new Error("duplicate-installment-payment");
-                await db.transactions.add({ id: newId(), kind: "expense", amount: installment.monthlyAmount, categoryId: installment.categoryId, walletId: primaryWalletId, date: today(), note: `Trả góp: ${installment.name}`, installmentId: installment.id, installmentPeriod, createdAt: now, updatedAt: now });
+                const amount = installmentPaymentAmount(installment, installmentPeriod);
+                await db.transactions.add({ id: newId(), kind: "expense", amount, categoryId: installment.categoryId, walletId: primaryWalletId, date: today(), note: `Trả góp: ${installment.name}`, installmentId: installment.id, installmentPeriod, createdAt: now, updatedAt: now });
                 const payments = await db.transactions.where("installmentId").equals(installment.id).toArray();
                 const paidCount = paidInstallmentPeriods(installment, payments).size;
                 if (paidCount >= installment.totalMonths) await db.installments.update(installment.id, { closedAt: now, updatedAt: now });
@@ -437,8 +455,9 @@ export default function App() {
             onReminder={() => setModal("reminder")} onBackup={() => setModal("backup")} onRestore={() => setModal("restore")}
             onPin={() => setModal("pin")}
             onExportCsv={() => {
+              const sorted = [...data.transactions].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
               const csv = transactionsCsv(
-                data.transactions.map(transaction => ({
+                sorted.map(transaction => ({
                   ...transaction,
                   category: categoryMap.get(transaction.categoryId)?.name ?? "Không rõ"
                 }))
@@ -487,10 +506,13 @@ export default function App() {
           budget={data.budgets.find(item => item.id === selectedBudgetId)}
           categories={data.categories} month={month} onClose={() => { setSelectedBudgetId(null); setModal(null); }}
           onSubmit={async values => {
+            if (!Number.isSafeInteger(values.limit) || values.limit <= 0) throw new Error("Giới hạn ngân sách không hợp lệ.");
             const now = new Date().toISOString();
-            const selected = data.budgets.find(item => item.id === selectedBudgetId);
-            const old = selected ?? data.budgets.find(item => item.categoryId === values.categoryId && item.month === values.month);
-            await db.budgets.put({ id: old?.id ?? newId(), ...values, createdAt: old?.createdAt ?? now, updatedAt: now });
+            await db.transaction("rw", db.budgets, async () => {
+              const selected = selectedBudgetId ? await db.budgets.get(selectedBudgetId) : undefined;
+              const existing = selected ?? await db.budgets.where("[month+categoryId]").equals([values.month, values.categoryId]).first();
+              await db.budgets.put({ id: existing?.id ?? newId(), ...values, createdAt: existing?.createdAt ?? now, updatedAt: now });
+            });
             setSelectedBudgetId(null);
             setModal(null);
             await refresh();
@@ -557,7 +579,21 @@ export default function App() {
         else await db.goals.add({ id: newId(), ...value, createdAt: now, updatedAt: now });
         setSelectedGoalId(null); setModal(null); await refresh();
       }} />}
-      {modal === "goal-entry" && selectedGoalId && <GoalEntryForm goal={data.goals.find(item => item.id === selectedGoalId)!} onClose={() => { setSelectedGoalId(null); setModal(null); }} onSubmit={async value => { await db.goalEntries.add({ id: newId(), goalId: selectedGoalId, ...value, createdAt: new Date().toISOString() }); setSelectedGoalId(null); setModal(null); await refresh(); }} />}
+      {modal === "goal-entry" && selectedGoalId && <GoalEntryForm goal={data.goals.find(item => item.id === selectedGoalId)!} onClose={() => { setSelectedGoalId(null); setModal(null); }} onSubmit={async value => {
+        const now = new Date().toISOString();
+        await db.transaction("rw", db.goals, db.goalEntries, async () => {
+          const goal = await db.goals.get(selectedGoalId);
+          if (!goal) throw new Error("Mục tiêu không còn tồn tại.");
+          const entries = await db.goalEntries.where("goalId").equals(goal.id).toArray();
+          const balance = entries.reduce((sum, entry) => sum + (entry.direction === "contribution" ? entry.amount : -entry.amount), 0);
+          if (!Number.isSafeInteger(value.amount) || value.amount <= 0) throw new Error("Số tiền không hợp lệ.");
+          if (value.direction === "withdrawal" && value.amount > balance) throw new Error("Không thể rút vượt số dư mục tiêu.");
+          const nextBalance = balance + (value.direction === "contribution" ? value.amount : -value.amount);
+          await db.goalEntries.add({ id: newId(), goalId: goal.id, ...value, createdAt: now });
+          await db.goals.update(goal.id, { closedAt: nextBalance >= goal.target ? now : undefined, updatedAt: now });
+        });
+        setSelectedGoalId(null); setModal(null); await refresh();
+      }} />}
       {modal === "installment" && <InstallmentForm
         installment={data.installments.find(item => item.id === selectedInstallmentId)}
         scheduleLocked={Boolean(selectedInstallmentId && data.installments.find(item => item.id === selectedInstallmentId) && paidInstallmentPeriods(data.installments.find(item => item.id === selectedInstallmentId)!, data.transactions).size)}

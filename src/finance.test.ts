@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDueDate, cashFlowForecast, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, installmentPeriods, monthForecast, monthTotals, normalizeInstallmentPayments, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods, recurringDatesInMonth } from "./finance";
+import { advanceDueDate, cashFlowForecast, totalBalance, walletBalance, budgetProgress, debtOutstanding, dueOccurrences, goalBalance, installmentPaymentAmount, installmentPeriods, monthForecast, monthTotals, normalizeInstallmentPayments, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods, recurringDatesInMonth } from "./finance";
 import type { Budget, Category, Debt, DebtPayment, GoalEntry, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 
 const transaction = (kind: Transaction["kind"], amount: number, date = "2026-07-13", walletId = "w1"): Transaction => ({
@@ -12,6 +12,12 @@ const rule = (overrides: Partial<RecurringRule> = {}): RecurringRule => ({
 });
 
 describe("finance calculations", () => {
+  it("uses the exact remaining amount for the final installment", () => {
+    const installment = { id: "phone", name: "Phone", totalAmount: 1_000, monthlyAmount: 333, totalMonths: 3, startDate: "2026-07-01", dueDate: 15, categoryId: "category", walletId: "w1", createdAt: "", updatedAt: "" };
+    expect(installmentPaymentAmount(installment, "2026-07")).toBe(333);
+    expect(installmentPaymentAmount(installment, "2026-09")).toBe(334);
+  });
+
   it("calculates total balance from wallets and transactions", () => {
     const wallets: Wallet[] = [{ id: "w1", name: "Cash", initialBalance: 1_000_000, color: "", icon: "", archived: false, createdAt: "", updatedAt: "" }];
     expect(totalBalance(wallets, [transaction("income", 400_000), transaction("expense", 125_000)])).toBe(1_275_000);

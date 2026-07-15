@@ -49,6 +49,8 @@ export function VoiceTransactionForm({
   const [voiceError, setVoiceError] = useState("");
   const [pastedSms, setPastedSms] = useState("");
   const [showSmsInput, setShowSmsInput] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   const recognitionRef = useRef<SpeechRecognizer | null>(null);
   const transcriptRef = useRef("");
@@ -132,6 +134,24 @@ export function VoiceTransactionForm({
     if (parsed.note) setNote(parsed.note);
     setShowSmsInput(false);
     setPastedSms("");
+  };
+
+  const submit = async () => {
+    if (submitting) return;
+    const numericAmount = Number(amount);
+    if (!Number.isSafeInteger(numericAmount) || numericAmount <= 0) {
+      setSubmitError("Số tiền phải là số nguyên dương hợp lệ.");
+      return;
+    }
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      await onSubmit({ id: transaction?.id, kind, amount: numericAmount, categoryId, date, note: note || undefined, recurring: recurring ? { frequency, interval: 1, dayOfMonth: Number(date.slice(-2)) } : undefined });
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Không thể lưu giao dịch.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -218,18 +238,11 @@ export function VoiceTransactionForm({
           </>
         )}
 
+        {submitError && <p className="form-error">{submitError}</p>}
         <button 
           className="primary full" 
-          disabled={!amount || !categoryId || listening} 
-          onClick={() => void onSubmit({ 
-            id: transaction?.id, 
-            kind, 
-            amount: Number(amount), 
-            categoryId,
-            date, 
-            note: note || undefined, 
-            recurring: recurring ? { frequency, interval: 1, dayOfMonth: Number(date.slice(-2)) } : undefined 
-          })}
+          disabled={!amount || !categoryId || listening || submitting}
+          onClick={() => void submit()}
         >
           {transaction ? "Lưu thay đổi" : "Lưu giao dịch"}
         </button>

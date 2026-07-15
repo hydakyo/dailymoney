@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, List, Plus, ReceiptText, Search, X } from "lucide-react";
 import type { Category, Transaction } from "../../domain";
 import { formatVnd } from "../../domain";
