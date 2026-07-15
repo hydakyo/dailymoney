@@ -227,9 +227,9 @@ describe("finance calculations", () => {
   });
 
   it("forecasts every unpaid installment period that is due by month end", () => {
-    const installment = { id: "phone", name: "Phone", totalAmount: 3_000_000, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-05-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
+    const installment = { id: "phone", name: "Phone", totalAmount: 1_500_001, monthlyAmount: 500_000, totalMonths: 3, startDate: "2026-05-01", dueDate: 20, categoryId: "food", walletId: "w1", createdAt: "", updatedAt: "" };
     const forecast = monthForecast({ balance: 5_000_000, month: "2026-07", transactions: [], rules: [], occurrences: [], installments: [installment], budgets: [], asOf: new Date(2026, 6, 14) });
-    expect(forecast?.expectedInstallments).toBe(1_500_000);
+    expect(forecast?.expectedInstallments).toBe(1_500_001);
     expect(forecast?.expectedInstallmentPeriods).toBe(3);
   });
 

@@ -31,6 +31,7 @@ export function Onboarding({ onDone }: { onDone: () => Promise<void> }) {
           setError("");
           try {
             const balance = Number(amount || 0);
+            if (!Number.isSafeInteger(balance)) throw new Error("Số dư phải là số nguyên hợp lệ.");
             const primaryWalletId = requirePrimaryWalletId(await db.wallets.toArray());
             const now = new Date().toISOString();
             await db.transaction("rw", db.settings, db.wallets, async () => {

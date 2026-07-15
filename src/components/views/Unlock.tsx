@@ -20,6 +20,7 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
   const [lockoutLevel, setLockoutLevel] = useState(() => Number(localStorage.getItem("pin_lockoutLevel") || "0"));
   const [lockoutUntil, setLockoutUntil] = useState<number>(() => Number(localStorage.getItem("pin_lockoutUntil") || "0"));
   const [timeLeft, setTimeLeft] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (lockoutUntil > 0) {
@@ -96,10 +97,11 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
       
       <button
         className="primary full"
-        disabled={lockedOut || pin.length !== 6}
+        disabled={lockedOut || pin.length !== 6 || submitting}
         onClick={async () => {
+          if (submitting) return;
           if (!settings.pinSalt || !settings.pinHash) return;
-          
+          setSubmitting(true);
           try {
             if (settings.pinSalt.length === 36) {
               const legacyHash = await hashLegacyPin(pin, settings.pinSalt);
@@ -135,6 +137,8 @@ export function Unlock({ settings, onUnlocked }: { settings: AppSettings; onUnlo
             }
           } catch {
             setError("Lỗi xử lý PIN.");
+          } finally {
+            setSubmitting(false);
           }
         }}
       >

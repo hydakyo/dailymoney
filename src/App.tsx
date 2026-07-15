@@ -2,7 +2,7 @@ import { lazy, Suspense, type PointerEvent, useEffect, useMemo, useRef, useState
 import { BarChart3, ClipboardList, ReceiptText, Settings, Home, CirclePlus, WalletCards } from "lucide-react";
 import { decryptBackup, downloadFile, encryptBackup, transactionsCsv, type EncryptedBackup } from "./backup";
 import { db, exportBackup, restoreBackup } from "./db";
-import { currentMonth, formatVnd, newId, today } from "./domain";
+import { currentMonth, formatVnd, isValidDate, newId, today } from "./domain";
 import type { EditableTransactionKind, RecurringRule, Transaction } from "./domain";
 import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, installmentPaymentAmount, monthForecast, monthTotals, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "./finance";
 import { addMonths } from "./utils";
@@ -21,6 +21,7 @@ import { primaryWallet, requirePrimaryWalletId } from "./wallet";
 import { isLegacyTransfer, normalizeEditableTransaction, requireMatchingActiveCategory } from "./transaction";
 import { deleteDebtWithRelatedRecords, updateDebtFromDatabase } from "./debt-actions";
 import { DataRecoveryView } from "./components/views/DataRecoveryView";
+import { StorageRecoveryView } from "./components/views/StorageRecoveryView";
 
 const ReportsView = lazy(() => import("./components/views/ReportsView").then(module => ({ default: module.ReportsView })));
 const TrendReport = lazy(() => import("./components/views/ReportsView").then(module => ({ default: module.TrendReport })));
@@ -58,7 +59,7 @@ type TransactionInput = {
 };
 
 export default function App() {
-  const { data, ready, locked, setLocked, refresh } = useAppStore();
+  const { data, ready, loadError, locked, setLocked, refresh } = useAppStore();
   
   const [tab, setTab] = useState<Tab>("home");
   const [month, setMonth] = useState(currentMonth());
@@ -113,6 +114,29 @@ export default function App() {
     window.addEventListener("daily-money-update-available", onUpdateAvailable);
     return () => window.removeEventListener("daily-money-update-available", onUpdateAvailable);
   }, []);
+
+  useEffect(() => {
+    const clampFloatingAdd = () => {
+      const current = floatingAddPositionRef.current;
+      if (!current) return;
+      const size = 60;
+      const next = {
+        left: Math.min(Math.max(8, current.left), Math.max(8, window.innerWidth - size - 8)),
+        top: Math.min(Math.max(8, current.top), Math.max(8, window.innerHeight - size - 76))
+      };
+      if (next.left === current.left && next.top === current.top) return;
+      floatingAddPositionRef.current = next;
+      setFloatingAddPosition(next);
+      window.localStorage.setItem(FLOATING_ADD_POSITION_KEY, JSON.stringify(next));
+    };
+    window.addEventListener("resize", clampFloatingAdd);
+    window.addEventListener("orientationchange", clampFloatingAdd);
+    clampFloatingAdd();
+    return () => {
+      window.removeEventListener("resize", clampFloatingAdd);
+      window.removeEventListener("orientationchange", clampFloatingAdd);
+    };
+  }, [floatingAddPosition]);
 
   useEffect(() => {
     try {
@@ -181,6 +205,18 @@ export default function App() {
     );
   }
 
+  if (loadError) {
+    return <StorageRecoveryView
+      error={loadError}
+      onRetry={refresh}
+      onReset={async () => {
+        if (!window.confirm("Xóa toàn bộ dữ liệu Daily Money trên thiết bị này?")) return;
+        await db.delete();
+        window.location.reload();
+      }}
+    />;
+  }
+
   if (!data.settings.onboardingComplete) return <Onboarding onDone={refresh} />;
   if (locked) return <Unlock settings={data.settings} onUnlocked={() => setLocked(false)} />;
 
@@ -204,9 +240,15 @@ export default function App() {
   const addTransaction = async (input: TransactionInput) => {
     const now = new Date().toISOString();
     if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error("Số tiền giao dịch không hợp lệ.");
+    if (!isValidDate(input.date)) throw new Error("Ngày giao dịch không hợp lệ.");
     requireMatchingActiveCategory(data.categories, input);
     const transactionValues = normalizeEditableTransaction(input, primaryWalletId);
     if (input.id) {
+      const existing = await db.transactions.get(input.id);
+      if (!existing) throw new Error("Giao dịch này không còn tồn tại.");
+      if (existing.debtPaymentId || existing.installmentId || isLegacyTransfer(existing.kind)) {
+        throw new Error("Giao dịch liên kết không thể sửa trực tiếp. Hãy điều chỉnh từ luồng công nợ hoặc trả góp.");
+      }
       await db.transactions.update(input.id, {
         ...transactionValues,
         updatedAt: now
@@ -422,14 +464,20 @@ export default function App() {
                 window.alert("Tháng trước chưa có ngân sách để sao chép.");
                 return;
               }
-              const currentCategoryIds = new Set(data.budgets.filter(item => item.month === month).map(item => item.categoryId));
-              const missingBudgets = previousBudgets.filter(item => !currentCategoryIds.has(item.categoryId));
-              if (!missingBudgets.length) {
+              const now = new Date().toISOString();
+              let copiedCount = 0;
+              await db.transaction("rw", db.budgets, async () => {
+                const currentBudgets = await db.budgets.where("month").equals(month).toArray();
+                const currentCategoryIds = new Set(currentBudgets.map(item => item.categoryId));
+                const missingBudgets = previousBudgets.filter(item => !currentCategoryIds.has(item.categoryId));
+                if (!missingBudgets.length) return;
+                await db.budgets.bulkAdd(missingBudgets.map(item => ({ ...item, id: newId(), month, createdAt: now, updatedAt: now })));
+                copiedCount = missingBudgets.length;
+              });
+              if (!copiedCount) {
                 window.alert("Các danh mục ngân sách của tháng này đã đầy đủ.");
                 return;
               }
-              const now = new Date().toISOString();
-              await db.budgets.bulkAdd(missingBudgets.map(item => ({ ...item, id: newId(), month, createdAt: now, updatedAt: now })));
               await refresh();
             }}
             onPay={id => { setSelectedDebtId(id); setModal("payment"); }}
@@ -473,13 +521,13 @@ export default function App() {
                 window.alert("Kỳ trả góp tháng này đã được xác nhận.");
                 return;
               }
-              if (!window.confirm(`Ghi chi ${formatVnd(installment.monthlyAmount)} cho kỳ ${installmentPeriod} của ${installment.name}?`)) return;
+              const paymentAmount = installmentPaymentAmount(installment, installmentPeriod);
+              if (!window.confirm(`Ghi chi ${formatVnd(paymentAmount)} cho kỳ ${installmentPeriod} của ${installment.name}?`)) return;
               const now = new Date().toISOString();
               await db.transaction("rw", db.transactions, db.installments, async () => {
                 const paidForPeriod = await db.transactions.where("[installmentId+installmentPeriod]").equals([installment.id, installmentPeriod]).first();
                 if (paidForPeriod) throw new Error("duplicate-installment-payment");
-                const amount = installmentPaymentAmount(installment, installmentPeriod);
-                await db.transactions.add({ id: newId(), kind: "expense", amount, categoryId: installment.categoryId, walletId: primaryWalletId, date: today(), note: `Trả góp: ${installment.name}`, installmentId: installment.id, installmentPeriod, createdAt: now, updatedAt: now });
+                await db.transactions.add({ id: newId(), kind: "expense", amount: paymentAmount, categoryId: installment.categoryId, walletId: primaryWalletId, date: today(), note: `Trả góp: ${installment.name}`, installmentId: installment.id, installmentPeriod, createdAt: now, updatedAt: now });
                 const payments = await db.transactions.where("installmentId").equals(installment.id).toArray();
                 const paidCount = paidInstallmentPeriods(installment, payments).size;
                 if (paidCount >= installment.totalMonths) await db.installments.update(installment.id, { closedAt: now, updatedAt: now });
@@ -586,6 +634,8 @@ export default function App() {
       )}
       {modal === "debt" && (
         <DebtForm debt={data.debts.find(item => item.id === selectedDebtId)} onClose={() => { setSelectedDebtId(null); setModal(null); }} onSubmit={async value => {
+          if (!Number.isSafeInteger(value.principal) || value.principal <= 0) throw new Error("Số tiền gốc không hợp lệ.");
+          if (!isValidDate(value.openedDate) || (value.dueDate && !isValidDate(value.dueDate))) throw new Error("Ngày công nợ không hợp lệ.");
           const now = new Date().toISOString();
           if (selectedDebtId) {
             const result = await updateDebtFromDatabase(db, selectedDebtId, value, now);
@@ -617,7 +667,8 @@ export default function App() {
               const expectedKind = debt.kind === "payable" ? "expense" : "income";
               const category = data.categories.find(item => item.kind === expectedKind && !item.archived);
               if (!category) throw new Error(`Chưa có danh mục ${expectedKind === "income" ? "thu" : "chi"} khả dụng.`);
-              if (!Number.isFinite(value.amount) || value.amount <= 0) throw new Error("Số tiền thanh toán không hợp lệ.");
+              if (!Number.isSafeInteger(value.amount) || value.amount <= 0) throw new Error("Số tiền thanh toán không hợp lệ.");
+              if (!isValidDate(value.date)) throw new Error("Ngày thanh toán không hợp lệ.");
               const transactionId = newId();
               await db.transaction("rw", db.transactions, db.debtPayments, db.debts, async () => {
                 const currentDebt = await db.debts.get(debt.id);
@@ -638,6 +689,8 @@ export default function App() {
         />
       )}
       {modal === "goal" && <GoalForm goal={data.goals.find(item => item.id === selectedGoalId)} onClose={() => { setSelectedGoalId(null); setModal(null); }} onSubmit={async value => {
+        if (!Number.isSafeInteger(value.target) || value.target <= 0) throw new Error("Mục tiêu tiền không hợp lệ.");
+        if (value.targetDate && !isValidDate(value.targetDate)) throw new Error("Ngày mục tiêu không hợp lệ.");
         const existing = data.goals.find(item => item.id === selectedGoalId);
         const now = new Date().toISOString();
         if (existing) await db.goals.update(existing.id, { ...value, updatedAt: now });
@@ -652,6 +705,7 @@ export default function App() {
           const entries = await db.goalEntries.where("goalId").equals(goal.id).toArray();
           const balance = entries.reduce((sum, entry) => sum + (entry.direction === "contribution" ? entry.amount : -entry.amount), 0);
           if (!Number.isSafeInteger(value.amount) || value.amount <= 0) throw new Error("Số tiền không hợp lệ.");
+          if (!isValidDate(value.date)) throw new Error("Ngày đóng góp không hợp lệ.");
           if (value.direction === "withdrawal" && value.amount > balance) throw new Error("Không thể rút vượt số dư mục tiêu.");
           const nextBalance = balance + (value.direction === "contribution" ? value.amount : -value.amount);
           await db.goalEntries.add({ id: newId(), goalId: goal.id, ...value, createdAt: now });
@@ -666,6 +720,8 @@ export default function App() {
         primaryWalletId={primaryWalletId}
         onClose={() => { setSelectedInstallmentId(null); setModal(null); }}
         onSubmit={async value => {
+          if (!Number.isSafeInteger(value.totalAmount) || value.totalAmount <= 0 || !Number.isSafeInteger(value.monthlyAmount) || value.monthlyAmount <= 0 || !Number.isSafeInteger(value.totalMonths) || value.totalMonths <= 0) throw new Error("Thông tin trả góp không hợp lệ.");
+          if (!isValidDate(value.startDate)) throw new Error("Ngày bắt đầu trả góp không hợp lệ.");
           const existing = data.installments.find(item => item.id === selectedInstallmentId);
           const now = new Date().toISOString();
           if (existing) await db.installments.update(existing.id, { ...value, updatedAt: now });
@@ -679,6 +735,9 @@ export default function App() {
         primaryWalletId={primaryWalletId}
         onClose={() => { setSelectedRecurringRuleId(null); setModal(null); }}
         onSubmit={async value => {
+          if (!Number.isSafeInteger(value.amount) || value.amount <= 0) throw new Error("Số tiền lặp lại không hợp lệ.");
+          if (!isValidDate(value.startDate) || !isValidDate(value.nextDueDate) || (value.endDate && !isValidDate(value.endDate))) throw new Error("Ngày giao dịch lặp không hợp lệ.");
+          if (value.endDate && value.endDate < value.nextDueDate) throw new Error("Ngày kết thúc phải sau kỳ tiếp theo.");
           const existing = data.rules.find(item => item.id === selectedRecurringRuleId);
           const now = new Date().toISOString();
           if (existing) {
@@ -698,8 +757,8 @@ export default function App() {
       {modal === "smart-plan" && <SmartPlanModal data={data} month={month} onClose={() => setModal(null)} onApplied={async () => { setModal(null); await refresh(); }} />}
       {modal === "pin" && <PinForm settings={data.settings} onClose={() => setModal(null)} onSave={async pin => { const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))); const pinHash = await hashPin(pin, salt); await db.settings.update("settings", { lockEnabled: true, pinHash, pinSalt: salt, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} onDisable={async () => { await db.settings.update("settings", { lockEnabled: false, pinHash: undefined, pinSalt: undefined, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "categories" && <CategoryManager categories={data.categories} onClose={() => setModal(null)} onChange={refresh} />}
-      {modal === "opening-balance" && <OpeningBalanceForm current={currentPrimaryWallet?.initialBalance ?? data.settings.openingBalance} onClose={() => setModal(null)} onSave={async openingBalance => { await db.settings.update("settings", { openingBalance, updatedAt: new Date().toISOString() }); await db.wallets.update(primaryWalletId, { initialBalance: openingBalance, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
-      {modal === "minimum-reserve" && <MinimumReserveForm current={data.settings.minimumReserve ?? 0} onClose={() => setModal(null)} onSave={async minimumReserve => { await db.settings.update("settings", { minimumReserve, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
+      {modal === "opening-balance" && <OpeningBalanceForm current={currentPrimaryWallet?.initialBalance ?? data.settings.openingBalance} onClose={() => setModal(null)} onSave={async openingBalance => { if (!Number.isSafeInteger(openingBalance)) throw new Error("Số dư đầu kỳ phải là số nguyên hợp lệ."); await db.settings.update("settings", { openingBalance, updatedAt: new Date().toISOString() }); await db.wallets.update(primaryWalletId, { initialBalance: openingBalance, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
+      {modal === "minimum-reserve" && <MinimumReserveForm current={data.settings.minimumReserve ?? 0} onClose={() => setModal(null)} onSave={async minimumReserve => { if (!Number.isSafeInteger(minimumReserve) || minimumReserve < 0) throw new Error("Mức tối thiểu phải là số nguyên không âm hợp lệ."); await db.settings.update("settings", { minimumReserve, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "reminder" && <ReminderForm settings={data.settings} onClose={() => setModal(null)} onSave={async (enabled, reminderTime) => { if (isNativeApp()) { if (enabled) await setDailyReminder(reminderTime); else await clearDailyReminder(); } else if (enabled) await setWebPushReminder(reminderTime); else await clearWebPushReminder(); await db.settings.update("settings", { reminderEnabled: enabled, reminderTime, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       </Suspense>
     </main>

@@ -6,7 +6,7 @@ const base64UrlToBytes = (value: string) => {
   return Uint8Array.from(binary, character => character.charCodeAt(0));
 };
 
-export const supportsWebPush = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+export const supportsWebPush = () => window.isSecureContext && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
 async function request(path: string, init?: RequestInit) {
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers: { "content-type": "application/json", ...init?.headers } });
@@ -16,6 +16,7 @@ async function request(path: string, init?: RequestInit) {
 }
 
 export async function setWebPushReminder(time: string) {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("Giờ nhắc không hợp lệ.");
   if (!supportsWebPush()) throw new Error("Cần mở Daily Money từ Màn hình chính trên iPhone để bật nhắc PWA.");
   const permission = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
   if (permission !== "granted") throw new Error("Bạn cần cho phép thông báo cho Daily Money trong Cài đặt iPhone.");

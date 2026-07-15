@@ -182,7 +182,9 @@ export class DailyMoneyDatabase extends Dexie {
       const budgets = await trans.table("budgets").toArray() as Budget[];
       const keepByKey = new Map<string, Budget>();
       const duplicates: string[] = [];
-      for (const budget of budgets.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.createdAt.localeCompare(left.createdAt))) {
+      for (const budget of budgets.sort((left, right) =>
+        (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "") || (right.createdAt ?? "").localeCompare(left.createdAt ?? "")
+      )) {
         const key = `${budget.month}:${budget.categoryId}`;
         if (keepByKey.has(key)) duplicates.push(budget.id);
         else keepByKey.set(key, budget);
@@ -331,7 +333,7 @@ function normalizeRestoredSettings(settings: AppSettings): AppSettings {
 export function prepareRestorePayload(payload: BackupPayloadV1 | BackupPayloadV2 | BackupPayloadV3) {
   const wallets: Wallet[] = payload.schemaVersion >= 2 ? payload.wallets ?? [] : [];
   const categories: Category[] = payload.categories;
-  const transactions: Transaction[] = payload.transactions;
+  let transactions: Transaction[] = payload.transactions;
   const budgets: Budget[] = payload.budgets ?? [];
   const rules: RecurringRule[] = payload.recurringRules ?? [];
   const occurrences: RecurringOccurrence[] = payload.recurringOccurrences ?? [];
@@ -376,12 +378,23 @@ export function prepareRestorePayload(payload: BackupPayloadV1 | BackupPayloadV2
     requireReference(debtIds.has(payment.debtId), "thanh toán công nợ trỏ tới khoản nợ không tồn tại");
     requireReference(transactionIds.has(payment.transactionId), "thanh toán công nợ trỏ tới giao dịch không tồn tại");
   }
+  const paymentByTransactionId = new Map<string, DebtPayment>();
+  for (const payment of payments) {
+    requireReference(!paymentByTransactionId.has(payment.transactionId), "nhiều thanh toán công nợ cùng trỏ tới một giao dịch");
+    paymentByTransactionId.set(payment.transactionId, payment);
+  }
+  transactions = transactions.map(transaction => {
+    const payment = paymentByTransactionId.get(transaction.id);
+    if (!payment) return transaction;
+    requireReference(!transaction.debtPaymentId || transaction.debtPaymentId === payment.id, "thanh toán công nợ không khớp giao dịch liên kết");
+    return transaction.debtPaymentId ? transaction : { ...transaction, debtPaymentId: payment.id };
+  });
   for (const entry of entries) requireReference(goalIds.has(entry.goalId), "đóng góp mục tiêu trỏ tới mục tiêu không tồn tại");
   for (const installment of installments) {
     requireReference(categoryIds.has(installment.categoryId), "trả góp trỏ tới danh mục không tồn tại");
     requireReference(walletIds.has(installment.walletId), "trả góp trỏ tới ví không tồn tại");
   }
-  return { ...payload, settings: normalizeRestoredSettings(payload.settings) };
+  return { ...payload, transactions, settings: normalizeRestoredSettings(payload.settings) };
 }
 
 export async function restoreBackup(payload: BackupPayloadV1 | BackupPayloadV2 | BackupPayloadV3) {
@@ -392,26 +405,26 @@ export async function restoreBackup(payload: BackupPayloadV1 | BackupPayloadV2 |
     await db.categories.bulkAdd(prepared.categories);
     const restoredTransactions = prepared.transactions.map(transaction => ({ ...transaction }));
     await db.transactions.bulkAdd(restoredTransactions);
-    await db.budgets.bulkAdd(payload.budgets ?? []);
-    await db.recurringRules.bulkAdd(payload.recurringRules ?? []);
-    await db.recurringOccurrences.bulkAdd(payload.recurringOccurrences ?? []);
-    await db.debts.bulkAdd(payload.debts ?? []);
-    await db.debtPayments.bulkAdd(payload.debtPayments ?? []);
-    await db.goals.bulkAdd(payload.goals ?? []);
-    await db.goalEntries.bulkAdd(payload.goalEntries ?? []);
+    await db.budgets.bulkAdd(prepared.budgets ?? []);
+    await db.recurringRules.bulkAdd(prepared.recurringRules ?? []);
+    await db.recurringOccurrences.bulkAdd(prepared.recurringOccurrences ?? []);
+    await db.debts.bulkAdd(prepared.debts ?? []);
+    await db.debtPayments.bulkAdd(prepared.debtPayments ?? []);
+    await db.goals.bulkAdd(prepared.goals ?? []);
+    await db.goalEntries.bulkAdd(prepared.goalEntries ?? []);
 
-    if (payload.schemaVersion >= 3) {
-      await db.installments.bulkAdd((payload as BackupPayloadV3).installments);
+    if (prepared.schemaVersion >= 3) {
+      await db.installments.bulkAdd((prepared as BackupPayloadV3).installments);
       const reconciled = reconcileInstallmentPayments(restoredTransactions, await db.installments.toArray());
       const changedTransactions = reconciled.transactions.filter((transaction, index) => installmentLinkChanged(restoredTransactions[index], transaction));
       if (changedTransactions.length) await db.transactions.bulkPut(changedTransactions);
-      const originalInstallments = new Map((payload as BackupPayloadV3).installments.map(installment => [installment.id, installment]));
+      const originalInstallments = new Map((prepared as BackupPayloadV3).installments.map(installment => [installment.id, installment]));
       const changedInstallments = reconciled.installments.filter(installment => installment.closedAt !== originalInstallments.get(installment.id)?.closedAt);
       if (changedInstallments.length) await db.installments.bulkPut(changedInstallments);
     }
 
-    if (payload.schemaVersion >= 2) {
-      await db.wallets.bulkAdd((payload as BackupPayloadV2).wallets);
+    if (prepared.schemaVersion >= 2) {
+      await db.wallets.bulkAdd((prepared as BackupPayloadV2).wallets);
     } else {
       // Migrate v1 backup to v2
       const defaultWalletId = newId();
@@ -421,7 +434,7 @@ export async function restoreBackup(payload: BackupPayloadV1 | BackupPayloadV2 |
         name: "Ví chính",
         icon: "Wallet",
         color: "#6d5dfc",
-        initialBalance: payload.settings.openingBalance || 0,
+        initialBalance: prepared.settings.openingBalance || 0,
         archived: false,
         createdAt: now,
         updatedAt: now

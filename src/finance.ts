@@ -314,9 +314,9 @@ export function monthForecast({
   for (const installment of installments) {
     if (installment.closedAt) continue;
     const paidPeriods = paidInstallmentPeriods(installment, transactions);
-    const dueUnpaidCount = installmentPeriods(installment).filter(period => period <= month && !paidPeriods.has(period)).length;
-    expectedInstallments += dueUnpaidCount * installment.monthlyAmount;
-    expectedInstallmentPeriods += dueUnpaidCount;
+    const dueUnpaidPeriods = installmentPeriods(installment).filter(period => period <= month && !paidPeriods.has(period));
+    expectedInstallments += dueUnpaidPeriods.reduce((sum, period) => sum + installmentPaymentAmount(installment, period), 0);
+    expectedInstallmentPeriods += dueUnpaidPeriods.length;
   }
 
   let expectedDebtReceivables = 0;
@@ -384,7 +384,7 @@ export function cashFlowForecast(input: CashFlowForecastInput): CashFlowForecast
     for (const period of installmentPeriods(installment)) {
       if (period > currentMonth || paidPeriods.has(period)) continue;
       const day = String(Math.min(installment.dueDate, Number(monthEnd.slice(-2)))).padStart(2, "0");
-      addEvent({ date: period < currentMonth ? asOfDate : `${period}-${day}`, amount: -installment.monthlyAmount, label: `Trả góp: ${installment.name}`, kind: "installment", priority: installment.priority ?? "high", categoryId: installment.categoryId });
+      addEvent({ date: period < currentMonth ? asOfDate : `${period}-${day}`, amount: -installmentPaymentAmount(installment, period), label: `Trả góp: ${installment.name}`, kind: "installment", priority: installment.priority ?? "high", categoryId: installment.categoryId });
     }
   }
 

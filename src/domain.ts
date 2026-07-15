@@ -225,6 +225,10 @@ const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }, "Ngày không hợp lệ");
+export function isValidDate(value: string) {
+  return DateSchema.safeParse(value).success;
+}
+
 const MonthSchema = z.string().regex(/^\d{4}-\d{2}$/).refine(value => {
   const month = Number(value.slice(5, 7));
   return month >= 1 && month <= 12;

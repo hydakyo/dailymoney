@@ -36,6 +36,8 @@ export function TransactionForm({
   const [note, setNote] = useState(transaction?.note ?? "");
   const [recurring, setRecurring] = useState(false);
   const [frequency, setFrequency] = useState<RecurringRule["frequency"]>("monthly");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   
   const relevant = React.useMemo(
     () => categories.filter(category => category.kind === kind && !category.archived),
@@ -47,6 +49,24 @@ export function TransactionForm({
       setCategoryId(relevant[0]?.id ?? "");
     }
   }, [categoryId, relevant]);
+
+  const submit = async () => {
+    if (submitting) return;
+    const numericAmount = Number(amount);
+    if (!Number.isSafeInteger(numericAmount) || numericAmount <= 0) {
+      setError("Số tiền phải là số nguyên dương hợp lệ.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await onSubmit({ id: transaction?.id, kind, amount: numericAmount, categoryId, date, note: note || undefined, recurring: recurring ? { frequency, interval: 1, dayOfMonth: Number(date.slice(-2)) } : undefined });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Không thể lưu giao dịch.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <Modal title={transaction ? "Sửa giao dịch" : "Ghi giao dịch"} onClose={onClose}>
@@ -87,8 +107,9 @@ export function TransactionForm({
           )}
         </>
       )}
-      <button className="primary full" disabled={!amount || !categoryId} onClick={() => void onSubmit({ id: transaction?.id, kind, amount: Number(amount), categoryId, date, note: note || undefined, recurring: recurring ? { frequency, interval: 1, dayOfMonth: Number(date.slice(-2)) } : undefined })}>
-        {transaction ? "Lưu thay đổi" : "Lưu giao dịch"}
+      {error && <p className="form-error">{error}</p>}
+      <button className="primary full" disabled={!amount || !categoryId || submitting} onClick={() => void submit()}>
+        {submitting ? "Đang lưu…" : transaction ? "Lưu thay đổi" : "Lưu giao dịch"}
       </button>
     </Modal>
   );
@@ -139,6 +160,25 @@ export function DebtForm({ debt, onSubmit, onClose }: { debt?: Debt; onSubmit: (
   const [note, setNote] = useState(debt?.note ?? "");
   const [priority, setPriority] = useState<ObligationPriority>(debt?.priority ?? "high");
   const [collectionConfidence, setCollectionConfidence] = useState<CollectionConfidence>(debt?.collectionConfidence ?? "likely");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (submitting) return;
+    const principal = Number(amount);
+    if (!Number.isSafeInteger(principal) || principal <= 0) {
+      setError("Số tiền gốc phải là số nguyên dương hợp lệ.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await onSubmit({ kind, person: person.trim(), principal, openedDate: debt?.openedDate ?? today(), dueDate: dueDate || undefined, note: note.trim() || undefined, priority: kind === "payable" ? priority : undefined, collectionConfidence: kind === "receivable" ? collectionConfidence : undefined });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Không thể lưu khoản công nợ.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
   return (
     <Modal title={debt ? "Sửa khoản công nợ" : "Khoản công nợ"} onClose={onClose}>
       <div className="kind-switch">
@@ -168,7 +208,8 @@ export function DebtForm({ debt, onSubmit, onClose }: { debt?: Debt; onSubmit: (
       <label className="field"><span>Ghi chú</span><input value={note} onChange={event => setNote(event.target.value)} /></label>
       <p className="form-note">Tạo khoản nợ không làm thay đổi số dư. Khi thu/trả mới tạo giao dịch.</p>
       {debt && <p className="form-note">Loại công nợ được giữ nguyên để các giao dịch thu/trả đã ghi luôn chính xác.</p>}
-      <button className="primary full" disabled={!person || !amount} onClick={() => void onSubmit({ kind, person: person.trim(), principal: Number(amount), openedDate: debt?.openedDate ?? today(), dueDate: dueDate || undefined, note: note.trim() || undefined, priority: kind === "payable" ? priority : undefined, collectionConfidence: kind === "receivable" ? collectionConfidence : undefined })}>{debt ? "Lưu thay đổi" : "Lưu khoản nợ"}</button>
+      {error && <p className="form-error">{error}</p>}
+      <button className="primary full" disabled={!person.trim() || !amount || submitting} onClick={() => void submit()}>{submitting ? "Đang lưu…" : debt ? "Lưu thay đổi" : "Lưu khoản nợ"}</button>
     </Modal>
   );
 }
@@ -178,13 +219,20 @@ export function DebtPaymentForm({ debt, outstanding, onSubmit, onClose }: { debt
   const [date, setDate] = useState(today());
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const submit = async () => {
     if (submitting) return;
+    const numericAmount = Number(amount);
+    if (!Number.isSafeInteger(numericAmount) || numericAmount <= 0 || numericAmount > outstanding) {
+      setError("Số tiền thanh toán không hợp lệ.");
+      return;
+    }
     setSubmitting(true);
+    setError("");
     try {
-      await onSubmit({ id: newId(), amount: Number(amount), date, note: note || undefined });
+      await onSubmit({ id: newId(), amount: numericAmount, date, note: note || undefined });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Không thể ghi khoản thanh toán. Vui lòng thử lại.");
+      setError(error instanceof Error ? error.message : "Không thể ghi khoản thanh toán. Vui lòng thử lại.");
     } finally {
       setSubmitting(false);
     }
@@ -195,6 +243,7 @@ export function DebtPaymentForm({ debt, outstanding, onSubmit, onClose }: { debt
       <AmountInput value={amount} onChange={setAmount} />
       <label className="field"><span>Ngày</span><input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
       <label className="field"><span>Ghi chú</span><input value={note} onChange={event => setNote(event.target.value)} /></label>
+      {error && <p className="form-error">{error}</p>}
       <button className="primary full" disabled={!amount || Number(amount) > outstanding || submitting} onClick={() => void submit()}>{submitting ? "Đang lưu…" : "Xác nhận"}</button>
     </Modal>
   );
@@ -205,13 +254,33 @@ export function GoalForm({ goal, onSubmit, onClose }: { goal?: SavingsGoal; onSu
   const [amount, setAmount] = useState(goal ? String(goal.target) : "");
   const [targetDate, setTargetDate] = useState(goal?.targetDate ?? "");
   const [color, setColor] = useState(goal?.color ?? "#7c5cff");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (submitting) return;
+    const target = Number(amount);
+    if (!Number.isSafeInteger(target) || target <= 0) {
+      setError("Mục tiêu tiền phải là số nguyên dương hợp lệ.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await onSubmit({ name: name.trim(), target, targetDate: targetDate || undefined, color, icon: goal?.icon ?? "Goal" });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Không thể lưu mục tiêu.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
   return (
     <Modal title={goal ? "Sửa mục tiêu" : "Mục tiêu tiết kiệm"} onClose={onClose}>
       <label className="field"><span>Tên mục tiêu</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Ví dụ: Du lịch Đà Lạt" /></label>
       <AmountInput label="Mục tiêu tiền" value={amount} onChange={setAmount} />
       <label className="field"><span>Ngày mong muốn <em>(không bắt buộc)</em></span><input type="date" value={targetDate} onChange={event => setTargetDate(event.target.value)} /></label>
       <label className="field"><span>Màu mục tiêu</span><input type="color" value={color} onChange={event => setColor(event.target.value)} /></label>
-      <button className="primary full" disabled={!name || !amount} onClick={() => void onSubmit({ name: name.trim(), target: Number(amount), targetDate: targetDate || undefined, color, icon: goal?.icon ?? "Goal" })}>{goal ? "Lưu thay đổi" : "Tạo mục tiêu"}</button>
+      {error && <p className="form-error">{error}</p>}
+      <button className="primary full" disabled={!name.trim() || !amount || submitting} onClick={() => void submit()}>{submitting ? "Đang lưu…" : goal ? "Lưu thay đổi" : "Tạo mục tiêu"}</button>
     </Modal>
   );
 }
@@ -224,8 +293,13 @@ export function GoalEntryForm({ goal, onSubmit, onClose }: { goal: SavingsGoal; 
   const [error, setError] = useState("");
   const submit = async () => {
     if (submitting) return;
+    const numericAmount = Number(amount);
+    if (!Number.isSafeInteger(numericAmount) || numericAmount <= 0) {
+      setError("Số tiền phải là số nguyên dương hợp lệ.");
+      return;
+    }
     setSubmitting(true); setError("");
-    try { await onSubmit({ amount: Number(amount), direction, date }); }
+    try { await onSubmit({ amount: numericAmount, direction, date }); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Không thể lưu đóng góp."); }
     finally { setSubmitting(false); }
   };
@@ -330,14 +404,25 @@ export function RecurringForm({ rule, categories, primaryWalletId, onSubmit: sav
   const [endDate, setEndDate] = useState(rule?.endDate ?? "");
   const [note, setNote] = useState(rule?.note ?? "");
   const [priority, setPriority] = useState<ObligationPriority>(rule?.priority ?? "normal");
-  const submittingRef = React.useRef(false);
-  const submitOnce = async (value: Omit<RecurringRule, "id" | "active" | "createdAt" | "updatedAt">) => {
-    if (submittingRef.current) return;
-    if (!Number.isSafeInteger(value.amount) || value.amount <= 0) throw new Error("Số tiền lặp lại không hợp lệ.");
-    submittingRef.current = true;
-    try { await saveRecurring(value); } finally { submittingRef.current = false; }
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (submitting) return;
+    const numericAmount = Number(amount);
+    if (!Number.isSafeInteger(numericAmount) || numericAmount <= 0) {
+      setError("Số tiền lặp lại phải là số nguyên dương hợp lệ.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await saveRecurring({ kind, amount: numericAmount, categoryId, walletId: rule?.walletId ?? primaryWalletId, frequency, interval: rule?.interval ?? 1, dayOfMonth: Number(date.slice(-2)), startDate: rule?.startDate ?? date, nextDueDate: date, endDate: endDate || undefined, note: note.trim() || undefined, priority: kind === "expense" ? priority : undefined });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Không thể lưu giao dịch lặp.");
+    } finally {
+      setSubmitting(false);
+    }
   };
-  const onSubmit = submitOnce;
   const relevant = React.useMemo(() => categories.filter(category => category.kind === kind && !category.archived), [categories, kind]);
   React.useEffect(() => {
     if (!relevant.some(category => category.id === categoryId)) setCategoryId(relevant[0]?.id ?? "");
@@ -371,7 +456,8 @@ export function RecurringForm({ rule, categories, primaryWalletId, onSubmit: sav
           <option value="flexible">Linh hoạt — có thể thương lượng/dời</option>
         </select>
       </label>}
-      <button className="primary full" disabled={!amount || !categoryId || Boolean(endDate && endDate < date)} onClick={() => void onSubmit({ kind, amount: Number(amount), categoryId, walletId: rule?.walletId ?? primaryWalletId, frequency, interval: rule?.interval ?? 1, dayOfMonth: Number(date.slice(-2)), startDate: rule?.startDate ?? date, nextDueDate: date, endDate: endDate || undefined, note: note.trim() || undefined, priority: kind === "expense" ? priority : undefined })}>{rule ? "Lưu thay đổi" : "Tạo lịch lặp"}</button>
+      {error && <p className="form-error">{error}</p>}
+      <button className="primary full" disabled={!amount || !categoryId || Boolean(endDate && endDate < date) || submitting} onClick={() => void submit()}>{submitting ? "Đang lưu…" : rule ? "Lưu thay đổi" : "Tạo lịch lặp"}</button>
     </Modal>
   );
 }
@@ -380,13 +466,23 @@ export function BackupForm({ onDone, onClose }: { onDone: (password: string) => 
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async () => {
+    if (submitting) return;
+    if (password !== confirm) return setError("Hai mật khẩu chưa trùng nhau.");
+    setSubmitting(true);
+    setError("");
+    try { await onDone(password); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Không thể tạo backup."); }
+    finally { setSubmitting(false); }
+  };
   return (
     <Modal title="Sao lưu mã hóa" onClose={onClose}>
       <p className="form-note">File chỉ mở được bằng mật khẩu này. Daily Money không lưu mật khẩu; quên mật khẩu thì không thể khôi phục file.</p>
       <label className="field"><span>Mật khẩu backup</span><input type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>
       <label className="field"><span>Nhập lại mật khẩu</span><input type="password" value={confirm} onChange={event => setConfirm(event.target.value)} /></label>
       <p className="form-error">{error}</p>
-      <button className="primary full" onClick={() => { if (password !== confirm) return setError("Hai mật khẩu chưa trùng nhau."); void onDone(password).catch(error => setError(error instanceof Error ? error.message : "Không thể tạo backup.")); }}>Tạo file backup</button>
+      <button className="primary full" disabled={!password || !confirm || submitting} onClick={() => void submit()}>{submitting ? "Đang tạo…" : "Tạo file backup"}</button>
     </Modal>
   );
 }
@@ -395,19 +491,19 @@ export function RestoreForm({ onRestore: performRestore, onClose, inputRef }: { 
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const submittingRef = React.useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const onRestore = async (selectedFile: File, value: string) => {
-    if (submittingRef.current) return;
-    submittingRef.current = true;
+    if (submitting) return;
+    setSubmitting(true);
     try { await performRestore(selectedFile, value); }
-    finally { submittingRef.current = false; }
+    finally { setSubmitting(false); }
   };
   return (
     <Modal title="Khôi phục backup" onClose={onClose}>
       <label className="file-field"><Upload size={20} /><span>{file?.name ?? "Chọn file .dailymoney"}</span><input type="file" accept="application/json,.dailymoney" onChange={event => setFile(event.target.files?.[0] ?? null)} ref={inputRef as React.RefObject<HTMLInputElement>} /></label>
       <label className="field"><span>Mật khẩu backup</span><input type="password" value={password} onChange={event => setPassword(event.target.value)} /></label>
       <p className="form-error">{error}</p>
-      <button className="primary full" disabled={!file || !password} onClick={() => { if (file) void onRestore(file, password).catch(error => setError(error instanceof Error ? error.message : "Khôi phục thất bại.")); }}>Kiểm tra và khôi phục</button>
+      <button className="primary full" disabled={!file || !password || submitting} onClick={() => { if (file) void onRestore(file, password).catch(error => setError(error instanceof Error ? error.message : "Khôi phục thất bại.")); }}>{submitting ? "Đang khôi phục…" : "Kiểm tra và khôi phục"}</button>
     </Modal>
   );
 }
@@ -416,12 +512,12 @@ export function ReminderForm({ settings, onSave: persistReminder, onClose }: { s
   const [enabled, setEnabled] = useState(settings.reminderEnabled ?? false);
   const [time, setTime] = useState(settings.reminderTime ?? "20:00");
   const [error, setError] = useState("");
-  const submittingRef = React.useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   const onSave = async (nextEnabled: boolean, nextTime: string) => {
-    if (submittingRef.current) return;
-    submittingRef.current = true;
+    if (submitting) return;
+    setSubmitting(true);
     try { await persistReminder(nextEnabled, nextTime); }
-    finally { submittingRef.current = false; }
+    finally { setSubmitting(false); }
   };
   const native = isNativeApp();
   if (!native && !supportsWebPush()) return (
@@ -436,7 +532,7 @@ export function ReminderForm({ settings, onSave: persistReminder, onClose }: { s
       <label className="checkbox"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /> Bật nhắc mỗi ngày</label>
       <label className="field"><span>Giờ nhắc</span><input type="time" value={time} onChange={event => setTime(event.target.value)} disabled={!enabled} /></label>
       <p className="form-error">{error}</p>
-      <button className="primary full" onClick={() => void onSave(enabled, time).catch(value => setError(value instanceof Error ? value.message : "Không thể đặt lịch nhắc."))}>{enabled ? "Cho phép và lưu nhắc" : "Tắt nhắc"}</button>
+      <button className="primary full" disabled={submitting} onClick={() => void onSave(enabled, time).catch(value => setError(value instanceof Error ? value.message : "Không thể đặt lịch nhắc."))}>{submitting ? "Đang lưu…" : enabled ? "Cho phép và lưu nhắc" : "Tắt nhắc"}</button>
     </Modal>
   );
 }
@@ -445,14 +541,31 @@ export function PinForm({ settings, onSave, onDisable, onClose }: { settings: Ap
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const save = async () => {
+    if (submitting) return;
+    if (pin.length !== 6) return setError("PIN cần đúng 6 số.");
+    if (pin !== confirm) return setError("PIN chưa trùng nhau.");
+    setSubmitting(true); setError("");
+    try { await onSave(pin); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Không thể lưu PIN."); }
+    finally { setSubmitting(false); }
+  };
+  const disable = async () => {
+    if (submitting || !window.confirm("Tắt khóa PIN?")) return;
+    setSubmitting(true); setError("");
+    try { await onDisable(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Không thể tắt PIN."); }
+    finally { setSubmitting(false); }
+  };
   return (
     <Modal title={settings.lockEnabled ? "Đổi mã PIN" : "Bật mã PIN"} onClose={onClose}>
       <p className="form-note">PIN chỉ khóa giao diện. Dữ liệu backup vẫn được mã hóa bằng mật khẩu riêng.</p>
       <label className="field"><span>Mã PIN gồm 6 số</span><input inputMode="numeric" maxLength={6} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, ""))} /></label>
       <label className="field"><span>Nhập lại PIN</span><input inputMode="numeric" maxLength={6} value={confirm} onChange={event => setConfirm(event.target.value.replace(/\D/g, ""))} /></label>
       <p className="form-error">{error}</p>
-      <button className="primary full" onClick={() => { if (pin.length !== 6) return setError("PIN cần đúng 6 số."); if (pin !== confirm) return setError("PIN chưa trùng nhau."); void onSave(pin); }}>Lưu PIN</button>
-      {settings.lockEnabled && <button className="text-button danger-text full" onClick={() => { if (window.confirm("Tắt khóa PIN?")) void onDisable(); }}>Tắt PIN</button>}
+      <button className="primary full" disabled={submitting} onClick={() => void save()}>{submitting ? "Đang lưu…" : "Lưu PIN"}</button>
+      {settings.lockEnabled && <button className="text-button danger-text full" disabled={submitting} onClick={() => void disable()}>Tắt PIN</button>}
     </Modal>
   );
 }
@@ -558,22 +671,46 @@ export function CategoryManager({ categories, onChange, onClose }: { categories:
 
 export function OpeningBalanceForm({ current, onSave, onClose }: { current: number; onSave: (value: number) => Promise<void>; onClose: () => void }) {
   const [amount, setAmount] = useState(String(current));
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (submitting) return;
+    const value = Number(amount || 0);
+    if (!Number.isSafeInteger(value)) return setError("Số dư đầu kỳ phải là số nguyên hợp lệ.");
+    setSubmitting(true); setError("");
+    try { await onSave(value); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Không thể lưu số dư đầu kỳ."); }
+    finally { setSubmitting(false); }
+  };
   return (
     <Modal title="Số dư đầu kỳ" onClose={onClose}>
       <p className="form-note">Giá trị này là mốc bắt đầu cho số dư chung. Các giao dịch đã ghi sẽ được cộng/trừ từ mốc này.</p>
       <AmountInput value={amount} onChange={setAmount} />
-      <button className="primary full" onClick={() => void onSave(Number(amount || 0))}>Lưu số dư đầu kỳ</button>
+      {error && <p className="form-error">{error}</p>}
+      <button className="primary full" disabled={submitting} onClick={() => void submit()}>{submitting ? "Đang lưu…" : "Lưu số dư đầu kỳ"}</button>
     </Modal>
   );
 }
 
 export function MinimumReserveForm({ current, onSave, onClose }: { current: number; onSave: (value: number) => Promise<void>; onClose: () => void }) {
   const [amount, setAmount] = useState(String(current));
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (submitting) return;
+    const value = Number(amount || 0);
+    if (!Number.isSafeInteger(value) || value < 0) return setError("Mức tối thiểu phải là số nguyên không âm hợp lệ.");
+    setSubmitting(true); setError("");
+    try { await onSave(value); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Không thể lưu mức tối thiểu."); }
+    finally { setSubmitting(false); }
+  };
   return (
     <Modal title="Số dư tối thiểu cần giữ" onClose={onClose}>
       <p className="form-note">Smart Plan luôn giữ ít nhất mức này, ngoài phần đệm tự tính từ chi thiết yếu và nghĩa vụ đến hạn. Đặt 0 để chỉ dùng mức tự tính.</p>
       <AmountInput value={amount} onChange={setAmount} />
-      <button className="primary full" onClick={() => void onSave(Number(amount || 0))}>Lưu mức tối thiểu</button>
+      {error && <p className="form-error">{error}</p>}
+      <button className="primary full" disabled={submitting} onClick={() => void submit()}>{submitting ? "Đang lưu…" : "Lưu mức tối thiểu"}</button>
     </Modal>
   );
 }

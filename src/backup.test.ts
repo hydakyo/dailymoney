@@ -35,7 +35,7 @@ const richPayloadV3: BackupPayloadV3 = {
 
 const wallet = { id: "wallet", name: "Ví chính", icon: "Wallet", color: "#000", initialBalance: 0, archived: false, createdAt: "", updatedAt: "" };
 const shopping = { id: "shopping", kind: "expense" as const, name: "Mua sắm", icon: "Bag", color: "#000", archived: false, builtIn: true, createdAt: "" };
-const debtTransaction = { id: "transaction", kind: "expense" as const, amount: 500_000, categoryId: "shopping", walletId: "wallet", date: "2026-07-14", createdAt: "", updatedAt: "" };
+const debtTransaction = { id: "transaction", kind: "expense" as const, amount: 500_000, categoryId: "shopping", walletId: "wallet", date: "2026-07-14", debtPaymentId: "payment", createdAt: "", updatedAt: "" };
 
 describe("encrypted backup", () => {
   it("rejects zero money and impossible calendar dates", () => {
@@ -91,6 +91,22 @@ describe("E2E Restore", () => {
         { id: "two", categoryId: "shopping", month: "2026-07", limit: 200_000, createdAt: "", updatedAt: "" }
       ]
     })).toThrow("ngân sách trùng");
+    expect(() => prepareRestorePayload({
+      ...richPayloadV3,
+      wallets: [wallet],
+      categories: [shopping],
+      transactions: [{ ...debtTransaction, debtPaymentId: "other-payment" }]
+    })).toThrow("không khớp giao dịch liên kết");
+  });
+
+  it("repairs a legacy debt payment link when its transaction can be identified unambiguously", () => {
+    const prepared = prepareRestorePayload({
+      ...richPayloadV3,
+      wallets: [wallet],
+      categories: [shopping],
+      transactions: [{ ...debtTransaction, debtPaymentId: undefined }]
+    });
+    expect(prepared.transactions[0].debtPaymentId).toBe("payment");
   });
 
   it("exports, clears and restores the complete database", async () => {

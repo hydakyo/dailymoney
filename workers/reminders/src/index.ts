@@ -24,6 +24,7 @@ type ReminderRow = {
 };
 
 const getMaxSubscriptions = (env: Env) => Number(env.MAX_SUBSCRIPTIONS) || 1000;
+const base64Url = /^[A-Za-z0-9_-]+$/;
 
 const json = (value: unknown, status = 200, origin?: string) => new Response(JSON.stringify(value), {
   status,
@@ -77,11 +78,17 @@ const getAllowedOrigins = (env: Env) => {
 function validSubscriptionStrict(value: unknown): value is StoredSubscription {
   if (!value || typeof value !== "object") return false;
   const subscription = value as { endpoint?: unknown; keys?: unknown };
-  if (typeof subscription.endpoint !== "string" || !subscription.endpoint.startsWith("https://") || subscription.endpoint.length > 2048) return false;
+  if (typeof subscription.endpoint !== "string" || subscription.endpoint.length > 2048) return false;
+  try {
+    const endpoint = new URL(subscription.endpoint);
+    if (endpoint.protocol !== "https:" || !endpoint.hostname) return false;
+  } catch {
+    return false;
+  }
   if (!subscription.keys || typeof subscription.keys !== "object") return false;
   const keys = subscription.keys as { p256dh?: unknown; auth?: unknown };
-  if (typeof keys.p256dh !== "string" || keys.p256dh.length > 256) return false;
-  if (typeof keys.auth !== "string" || keys.auth.length > 128) return false;
+  if (typeof keys.p256dh !== "string" || keys.p256dh.length < 16 || keys.p256dh.length > 256 || !base64Url.test(keys.p256dh)) return false;
+  if (typeof keys.auth !== "string" || keys.auth.length < 8 || keys.auth.length > 128 || !base64Url.test(keys.auth)) return false;
   return true;
 }
 
@@ -103,9 +110,7 @@ async function handleApi(request: Request, env: Env, path: string) {
   }
 
   if (path === "/api/reminders/vapid-key" && request.method === "GET") {
-    return new Response(JSON.stringify({ publicKey: env.VAPID_PUBLIC_KEY }), {
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin },
-    });
+    return json({ publicKey: env.VAPID_PUBLIC_KEY }, 200, origin);
   }
 
   // Helper to read and limit body size to 8KB
@@ -128,7 +133,7 @@ async function handleApi(request: Request, env: Env, path: string) {
         .bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time, body.subscription.endpoint, getMaxSubscriptions(env))
         .run();
       if (!result.meta.changes) return json({ error: "Dịch vụ reminder đang đạt giới hạn vận hành. Vui lòng thử lại sau." }, 503, origin);
-      return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin } });
+      return json({ ok: true }, 200, origin);
     } catch {
       return invalid(origin, "Request không hợp lệ.");
     }
@@ -142,7 +147,7 @@ async function handleApi(request: Request, env: Env, path: string) {
       const body = await readJson<{ endpoint?: unknown }>();
       if (!body || typeof body.endpoint !== "string" || body.endpoint.length > 2048) return invalid(origin, "Endpoint không hợp lệ.");
       await env.REMINDERS.prepare("DELETE FROM subscriptions WHERE endpoint = ?").bind(body.endpoint).run();
-      return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin } });
+      return json({ ok: true }, 200, origin);
     } catch {
       return invalid(origin, "Request không hợp lệ.");
     }

@@ -49,6 +49,7 @@ export const emptyData = (): AppData => ({
 interface AppStore {
   data: AppData;
   ready: boolean;
+  loadError: string | null;
   locked: boolean;
   setLocked: (locked: boolean) => void;
   refresh: () => Promise<void>;
@@ -57,9 +58,11 @@ interface AppStore {
 export const useAppStore = create<AppStore>((set, get) => ({
   data: emptyData(),
   ready: false,
+  loadError: null,
   locked: false,
   setLocked: (locked: boolean) => set({ locked }),
   refresh: async () => {
+    try {
     const settings = await initializeDatabase();
     const [wallets, categories, transactions, budgets, rules, occurrences, debts, payments, goals, goalEntries, installments] = await Promise.all([
       db.wallets.toArray(),
@@ -108,7 +111,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({
       data: newData,
       locked: !state.ready ? settings.lockEnabled : state.locked,
+      loadError: null,
       ready: true
     }));
+    } catch (error) {
+      set({
+        ready: true,
+        locked: false,
+        loadError: error instanceof Error ? error.message : "Không thể mở dữ liệu trên thiết bị này."
+      });
+    }
   }
 }));

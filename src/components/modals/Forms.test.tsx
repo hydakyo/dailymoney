@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { OpeningBalanceForm, TransactionForm, RecurringForm } from "./Forms";
 
@@ -24,7 +24,7 @@ describe("Forms Component Tests", () => {
 
     // Click submit
     const submitBtn = screen.getByText("Lưu số dư đầu kỳ");
-    fireEvent.click(submitBtn);
+    await act(async () => { fireEvent.click(submitBtn); });
 
     // Verify onSave was called with new value
     expect(handleSave).toHaveBeenCalledWith(1000);
@@ -68,7 +68,7 @@ describe("TransactionForm Component", () => {
     const submitBtn = screen.getByText("Lưu giao dịch");
     expect((submitBtn as HTMLButtonElement).disabled).toBe(false);
 
-    fireEvent.click(submitBtn);
+    await act(async () => { fireEvent.click(submitBtn); });
 
     // Get the current date in YYYY-MM-DD
     const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -100,7 +100,7 @@ describe("RecurringForm Component", () => {
 
     // Submit
     const submitBtn = screen.getByText("Tạo lịch lặp");
-    fireEvent.click(submitBtn);
+    await act(async () => { fireEvent.click(submitBtn); });
 
     // Get the current date day
     const todayDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
