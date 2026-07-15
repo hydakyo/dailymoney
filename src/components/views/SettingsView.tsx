@@ -1,5 +1,5 @@
-import { ChevronRight, KeyRound, BellRing, Download, Upload, ReceiptText, WalletCards, ClipboardList } from "lucide-react";
-import type { AppSettings, Category, Transaction } from "../../domain";
+import { ChevronRight, KeyRound, BellRing, Download, Upload, ReceiptText, WalletCards, ClipboardList, PiggyBank, MoonStar, Monitor, Sun } from "lucide-react";
+import type { AppSettings, Category, ThemePreference, Transaction } from "../../domain";
 import { formatVnd } from "../../domain";
 import { isNativeApp } from "../../notifications";
 import { supportsWebPush } from "../../web-push";
@@ -11,6 +11,8 @@ export function SettingsView({
   transactions,
   categories,
   onOpeningBalance,
+  onMinimumReserve,
+  onTheme,
   onCategories,
   onReminder,
   onBackup,
@@ -24,6 +26,8 @@ export function SettingsView({
   transactions: Transaction[];
   categories: Category[];
   onOpeningBalance: () => void;
+  onMinimumReserve: () => void;
+  onTheme: (theme: ThemePreference) => Promise<void>;
   onCategories: () => void;
   onReminder: () => void;
   onBackup: () => void;
@@ -43,6 +47,29 @@ export function SettingsView({
           <button className="soft" onClick={onPin}>
             <KeyRound size={17} /> {settings.lockEnabled ? "Đổi PIN" : "Bật PIN"}
           </button>
+        </div>
+      </Card>
+
+      <section className="section-head">
+        <h2>Giao diện</h2>
+      </section>
+      <Card>
+        <div className="settings-row theme-setting">
+          <div>
+            <strong>Chế độ hiển thị</strong>
+            <p>Theo thiết bị hoặc cố định sáng/tối</p>
+          </div>
+          <div className="segmented theme-switch" aria-label="Chế độ giao diện">
+            {([
+              ["system", Monitor, "Tự động"],
+              ["light", Sun, "Sáng"],
+              ["dark", MoonStar, "Tối"]
+            ] as const).map(([value, Icon, label]) => (
+              <button key={value} className={(settings.theme ?? "system") === value ? "selected" : ""} onClick={() => void onTheme(value as ThemePreference)} aria-label={label} title={label}>
+                <Icon size={16} /><span>{label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </Card>
       
@@ -111,6 +138,14 @@ export function SettingsView({
           <span>
             <strong>Số dư đầu kỳ</strong>
             <small>{formatVnd(primaryBalance)}</small>
+          </span>
+          <ChevronRight />
+        </button>
+        <button className="settings-action" onClick={onMinimumReserve}>
+          <PiggyBank />
+          <span>
+            <strong>Số dư tối thiểu cần giữ</strong>
+            <small>{settings.minimumReserve ? formatVnd(settings.minimumReserve) : "Smart Plan tự tính theo thói quen và nghĩa vụ"}</small>
           </span>
           <ChevronRight />
         </button>

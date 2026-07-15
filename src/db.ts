@@ -195,7 +195,7 @@ export async function initializeDatabase() {
     if (!existing) {
       const now = new Date().toISOString();
       const settings: AppSettings = {
-        id: "settings", onboardingComplete: false, openingBalance: 0, currency: "VND", lockEnabled: false, createdAt: now, updatedAt: now
+        id: "settings", onboardingComplete: false, openingBalance: 0, currency: "VND", lockEnabled: false, minimumReserve: 0, theme: "system", createdAt: now, updatedAt: now
       };
       await db.settings.put(settings);
       await db.categories.bulkAdd(defaultCategories());

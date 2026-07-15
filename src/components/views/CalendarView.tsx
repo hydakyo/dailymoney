@@ -1,14 +1,23 @@
-import React from "react";
 import type { Transaction } from "../../domain";
+
+function compactVnd(value: number) {
+  const format = (amount: number) => amount.toLocaleString("vi-VN", { maximumFractionDigits: 1 });
+  if (value >= 1_000_000_000) return `${format(value / 1_000_000_000)}tỷ`;
+  if (value >= 1_000_000) return `${format(value / 1_000_000)}tr`;
+  if (value >= 1_000) return `${format(value / 1_000)}k`;
+  return String(value);
+}
 
 export function CalendarView({
   transactions,
   month,
-  onMonth,
+  selectedDate,
+  onSelectDate,
 }: {
   transactions: Transaction[];
   month: string;
-  onMonth: (m: string) => void;
+  selectedDate?: string;
+  onSelectDate: (date: string) => void;
 }) {
   const year = parseInt(month.substring(0, 4));
   const m = parseInt(month.substring(5, 7)) - 1;
@@ -58,11 +67,18 @@ export function CalendarView({
               const data = txByDay.get(d);
               const isToday = d === todayDay;
               return (
-                <div key={di} className={`calendar-cell day${isToday ? " today" : ""}`}>
+                <button
+                  type="button"
+                  key={di}
+                  className={`calendar-cell day${isToday ? " today" : ""}${selectedDate === `${month}-${String(d).padStart(2, "0")}` ? " selected" : ""}`}
+                  onClick={() => onSelectDate(`${month}-${String(d).padStart(2, "0")}`)}
+                  aria-pressed={selectedDate === `${month}-${String(d).padStart(2, "0")}`}
+                  aria-label={`Ngày ${d}${data ? `, thu ${data.inc}, chi ${data.exp}` : ", chưa có giao dịch"}`}
+                >
                   <span className="date">{d}</span>
-                  {data && data.inc > 0 && <span className="inc">+{Math.round(data.inc / 1000)}k</span>}
-                  {data && data.exp > 0 && <span className="exp">-{Math.round(data.exp / 1000)}k</span>}
-                </div>
+                  {data && data.inc > 0 && <span className="inc">+{compactVnd(data.inc)}</span>}
+                  {data && data.exp > 0 && <span className="exp">-{compactVnd(data.exp)}</span>}
+                </button>
               );
             })}
           </div>

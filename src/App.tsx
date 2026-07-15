@@ -8,26 +8,39 @@ import { advanceDueDate, totalBalance, budgetProgress, debtOutstanding, monthFor
 import { addMonths } from "./utils";
 import { clearDailyReminder, isNativeApp, setDailyReminder } from "./notifications";
 import { clearWebPushReminder, setWebPushReminder, supportsWebPush } from "./web-push";
-import { VoiceTransactionForm } from "./VoiceTransactionForm";
 import "./category.css";
 
 import { useAppStore } from "./store";
 import { HomeView } from "./components/views/HomeView";
 import { TransactionsView } from "./components/views/TransactionsView";
-import { PlansView } from "./components/views/PlansView";
-import { SettingsView } from "./components/views/SettingsView";
 import { Onboarding } from "./components/views/Onboarding";
 import { Unlock } from "./components/views/Unlock";
 import { hashPin, toBase64 } from "./utils";
 import { generateAdvice } from "./advisor";
-import { BackupForm, BudgetForm, CategoryManager, DebtForm, DebtPaymentForm, GoalEntryForm, GoalForm, InstallmentForm, OpeningBalanceForm, PinForm, RecurringForm, ReminderForm, RestoreForm } from "./components/modals/Forms";
-import { SmartPlanModal } from "./components/modals/SmartPlanModal";
 import { primaryWallet, requirePrimaryWalletId } from "./wallet";
 import { isLegacyTransfer, normalizeEditableTransaction } from "./transaction";
 import { DataRecoveryView } from "./components/views/DataRecoveryView";
 
 const ReportsView = lazy(() => import("./components/views/ReportsView").then(module => ({ default: module.ReportsView })));
 const TrendReport = lazy(() => import("./components/views/ReportsView").then(module => ({ default: module.TrendReport })));
+const PlansView = lazy(() => import("./components/views/PlansView").then(module => ({ default: module.PlansView })));
+const SettingsView = lazy(() => import("./components/views/SettingsView").then(module => ({ default: module.SettingsView })));
+const VoiceTransactionForm = lazy(() => import("./VoiceTransactionForm").then(module => ({ default: module.VoiceTransactionForm })));
+const SmartPlanModal = lazy(() => import("./components/modals/SmartPlanModal").then(module => ({ default: module.SmartPlanModal })));
+const BackupForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.BackupForm })));
+const BudgetForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.BudgetForm })));
+const CategoryManager = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.CategoryManager })));
+const DebtForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.DebtForm })));
+const DebtPaymentForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.DebtPaymentForm })));
+const GoalEntryForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.GoalEntryForm })));
+const GoalForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.GoalForm })));
+const InstallmentForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.InstallmentForm })));
+const MinimumReserveForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.MinimumReserveForm })));
+const OpeningBalanceForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.OpeningBalanceForm })));
+const PinForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.PinForm })));
+const RecurringForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.RecurringForm })));
+const ReminderForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.ReminderForm })));
+const RestoreForm = lazy(() => import("./components/modals/Forms").then(module => ({ default: module.RestoreForm })));
 
 type Tab = "home" | "transactions" | "plans" | "reports" | "settings";
 type PlanSection = "budgets" | "debts" | "goals" | "installments" | "recurring";
@@ -52,12 +65,16 @@ export default function App() {
     | "transaction" | "budget" | "debt" | "payment" | "goal" | "goal-entry"
     | "installment"
     | "recurring" | "backup" | "restore" | "pin" | "categories"
-    | "opening-balance" | "reminder" | "smart-plan" | null
+    | "opening-balance" | "minimum-reserve" | "reminder" | "smart-plan" | null
   >(null);
   
   const [selectedDebtId, setSelectedDebtId] = useState<string | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null);
+  const [selectedInstallmentId, setSelectedInstallmentId] = useState<string | null>(null);
+  const [selectedRecurringRuleId, setSelectedRecurringRuleId] = useState<string | null>(null);
   const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
+  const [transactionInitialDate, setTransactionInitialDate] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -73,6 +90,12 @@ export default function App() {
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [data.settings.lockEnabled, setLocked]);
+
+  useEffect(() => {
+    const theme = data.settings.theme ?? "system";
+    if (theme === "system") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.dataset.theme = theme;
+  }, [data.settings.theme]);
 
   const totals = useMemo(() => monthTotals(data.transactions, month), [data.transactions, month]);
   const balance = useMemo(() => totalBalance(data.wallets, data.transactions), [data.wallets, data.transactions]);
@@ -128,6 +151,7 @@ export default function App() {
         updatedAt: now
       });
       setSelectedTransactionId(null);
+      setTransactionInitialDate(null);
       setModal(null);
       await refresh();
       return;
@@ -163,6 +187,7 @@ export default function App() {
       }
     });
     setModal(null);
+    setTransactionInitialDate(null);
     await refresh();
   };
 
@@ -229,19 +254,20 @@ export default function App() {
         {tab === "home" && (
           <HomeView
             balance={balance} totals={totals} month={month} pending={pending} rules={data.rules} categories={categoryMap}
-            budgets={budgetItems} forecast={forecast} advices={generateAdvice(data, month)} onAdd={() => setModal("transaction")} onPending={confirmOccurrence} onMonth={setMonth}
+            budgets={budgetItems} forecast={forecast} advices={generateAdvice(data, month)} onAdd={() => { setSelectedTransactionId(null); setTransactionInitialDate(null); setModal("transaction"); }} onPending={confirmOccurrence} onMonth={setMonth}
           />
         )}
         {tab === "transactions" && (
           <TransactionsView
             transactions={data.transactions} categories={categoryMap} month={month} onMonth={setMonth}
-            onAdd={() => { setSelectedTransactionId(null); setModal("transaction"); }}
+            onAdd={date => { setSelectedTransactionId(null); setTransactionInitialDate(date ?? null); setModal("transaction"); }}
             onEdit={id => {
               const transaction = data.transactions.find(item => item.id === id);
               if (transaction?.debtPaymentId || transaction?.installmentId) {
                 window.alert("Giao dịch này liên kết với công nợ hoặc trả góp. Hãy điều chỉnh từ luồng thanh toán tương ứng để số liệu luôn khớp.");
                 return;
               }
+              setTransactionInitialDate(null);
               setSelectedTransactionId(id);
               setModal("transaction");
             }}
@@ -283,10 +309,11 @@ export default function App() {
           />
         )}
         {tab === "plans" && (
+          <Suspense fallback={<div className="view-loading">Đang tải kế hoạch…</div>}>
           <PlansView
             section={planSection}
             onSection={setPlanSection}
-            budgets={data.budgets.filter(item => item.month === month).map(b => ({ ...b, category: data.categories.find(c => c.id === b.categoryId)!, spent: data.transactions.filter(t => t.categoryId === b.categoryId && t.date.startsWith(month)).reduce((sum, t) => sum + t.amount, 0) }))}
+            budgets={budgetItems}
             categories={data.categories}
             debts={data.debts}
             payments={data.payments}
@@ -296,11 +323,11 @@ export default function App() {
             installments={data.installments}
             transactions={data.transactions}
             onAdd={section => {
-              if (section === "budgets") setModal("budget");
-              if (section === "debts") setModal("debt");
-              if (section === "goals") setModal("goal");
-              if (section === "installments") setModal("installment");
-              if (section === "recurring") setModal("recurring");
+              if (section === "budgets") { setSelectedBudgetId(null); setModal("budget"); }
+              if (section === "debts") { setSelectedDebtId(null); setModal("debt"); }
+              if (section === "goals") { setSelectedGoalId(null); setModal("goal"); }
+              if (section === "installments") { setSelectedInstallmentId(null); setModal("installment"); }
+              if (section === "recurring") { setSelectedRecurringRuleId(null); setModal("recurring"); }
             }}
             onSmartPlan={() => {
               if (month !== currentMonth()) {
@@ -331,6 +358,11 @@ export default function App() {
             onUpdateDebt={async (id, patch) => { await db.debts.update(id, { ...patch, updatedAt: new Date().toISOString() }); await refresh(); }}
             onContribute={id => { setSelectedGoalId(id); setModal("goal-entry"); }}
             onToggleRule={async rule => { await db.recurringRules.update(rule.id, { active: !rule.active, updatedAt: new Date().toISOString() }); await refresh(); }}
+            onEditBudget={id => { setSelectedBudgetId(id); setModal("budget"); }}
+            onEditDebt={id => { setSelectedDebtId(id); setModal("debt"); }}
+            onEditGoal={id => { setSelectedGoalId(id); setModal("goal"); }}
+            onEditRule={id => { setSelectedRecurringRuleId(id); setModal("recurring"); }}
+            onEditInstallment={id => { setSelectedInstallmentId(id); setModal("installment"); }}
             onDeleteBudget={async id => { await db.budgets.delete(id); await refresh(); }}
             onDeleteDebt={async id => { await db.transaction("rw", db.debts, db.debtPayments, db.transactions, async () => { const payments = data.payments.filter(p => p.debtId === id); await db.transactions.bulkDelete(payments.map(p => p.transactionId)); await db.debtPayments.bulkDelete(payments.map(p => p.id)); await db.debts.delete(id); }); await refresh(); }}
             onDeleteGoal={async id => { await db.transaction("rw", db.goals, db.goalEntries, async () => { await db.goalEntries.where("goalId").equals(id).delete(); await db.goals.delete(id); }); await refresh(); }}
@@ -376,17 +408,19 @@ export default function App() {
               await refresh();
             }}
           />
+          </Suspense>
         )}
         {tab === "reports" && (
           <Suspense fallback={<main className="loading"><p>Đang tải báo cáo…</p></main>}>
-            <ReportsView transactions={data.transactions} categories={categoryMap} month={month} onMonth={setMonth} />
+            <ReportsView transactions={data.transactions} categories={categoryMap} budgets={budgetItems} month={month} onMonth={setMonth} />
             <TrendReport transactions={data.transactions} month={month} />
           </Suspense>
         )}
         {tab === "settings" && (
+          <Suspense fallback={<div className="view-loading">Đang tải cài đặt…</div>}>
           <SettingsView
             settings={data.settings} primaryBalance={currentPrimaryWallet?.initialBalance ?? data.settings.openingBalance} categories={data.categories} transactions={data.transactions}
-            onOpeningBalance={() => setModal("opening-balance")} onCategories={() => setModal("categories")}
+            onOpeningBalance={() => setModal("opening-balance")} onMinimumReserve={() => setModal("minimum-reserve")} onTheme={async theme => { await db.settings.update("settings", { theme, updatedAt: new Date().toISOString() }); await refresh(); }} onCategories={() => setModal("categories")}
             onReminder={() => setModal("reminder")} onBackup={() => setModal("backup")} onRestore={() => setModal("restore")}
             onPin={() => setModal("pin")}
             onExportCsv={() => {
@@ -405,6 +439,7 @@ export default function App() {
               }
             }}
           />
+          </Suspense>
         )}
       </div>
 
@@ -424,35 +459,54 @@ export default function App() {
         ))}
       </nav>
 
+      <Suspense fallback={modal ? <div className="modal-backdrop" role="presentation"><section className="modal modal-loading" role="status">Đang mở biểu mẫu…</section></div> : null}>
       {modal === "transaction" && (
         <VoiceTransactionForm
           transaction={data.transactions.find(item => item.id === selectedTransactionId)}
+          initialDate={transactionInitialDate ?? undefined}
           categories={data.categories}
           onSubmit={addTransaction} 
-          onClose={() => { setSelectedTransactionId(null); setModal(null); }}
+          onClose={() => { setSelectedTransactionId(null); setTransactionInitialDate(null); setModal(null); }}
         />
       )}
       {modal === "budget" && (
         <BudgetForm
-          categories={data.categories} month={month} onClose={() => setModal(null)}
+          budget={data.budgets.find(item => item.id === selectedBudgetId)}
+          categories={data.categories} month={month} onClose={() => { setSelectedBudgetId(null); setModal(null); }}
           onSubmit={async values => {
             const now = new Date().toISOString();
-            const old = data.budgets.find(item => item.categoryId === values.categoryId && item.month === values.month);
+            const selected = data.budgets.find(item => item.id === selectedBudgetId);
+            const old = selected ?? data.budgets.find(item => item.categoryId === values.categoryId && item.month === values.month);
             await db.budgets.put({ id: old?.id ?? newId(), ...values, createdAt: old?.createdAt ?? now, updatedAt: now });
+            setSelectedBudgetId(null);
             setModal(null);
             await refresh();
           }}
         />
       )}
       {modal === "debt" && (
-        <DebtForm onClose={() => setModal(null)} onSubmit={async value => { await db.debts.add({ id: newId(), ...value, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />
+        <DebtForm debt={data.debts.find(item => item.id === selectedDebtId)} onClose={() => { setSelectedDebtId(null); setModal(null); }} onSubmit={async value => {
+          const existing = data.debts.find(item => item.id === selectedDebtId);
+          const now = new Date().toISOString();
+          if (existing) {
+            const paid = data.payments.filter(item => item.debtId === existing.id).reduce((sum, item) => sum + item.amount, 0);
+            if (value.principal < paid) {
+              window.alert(`Số tiền gốc không thể thấp hơn ${formatVnd(paid)} đã thanh toán.`);
+              return;
+            }
+            await db.debts.update(existing.id, { ...value, closedAt: paid > 0 && value.principal <= paid ? existing.closedAt ?? now : undefined, updatedAt: now });
+          } else {
+            await db.debts.add({ id: newId(), ...value, createdAt: now, updatedAt: now });
+          }
+          setSelectedDebtId(null); setModal(null); await refresh();
+        }} />
       )}
       {modal === "payment" && selectedDebtId && (
         <DebtPaymentForm
           debt={data.debts.find(item => item.id === selectedDebtId)!}
           outstanding={debtOutstanding(data.debts.find(item => item.id === selectedDebtId)!, data.payments)}
           categories={data.categories}
-          onClose={() => setModal(null)}
+          onClose={() => { setSelectedDebtId(null); setModal(null); }}
             onSubmit={async value => {
               const debt = data.debts.find(item => item.id === selectedDebtId);
               if (!debt) throw new Error("Không tìm thấy khoản công nợ.");
@@ -475,21 +529,62 @@ export default function App() {
                 }
               });
               setModal(null);
+              setSelectedDebtId(null);
               await refresh();
             }}
         />
       )}
-      {modal === "goal" && <GoalForm onClose={() => setModal(null)} onSubmit={async value => { await db.goals.add({ id: newId(), ...value, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
-      {modal === "goal-entry" && selectedGoalId && <GoalEntryForm goal={data.goals.find(item => item.id === selectedGoalId)!} onClose={() => setModal(null)} onSubmit={async value => { await db.goalEntries.add({ id: newId(), goalId: selectedGoalId, ...value, createdAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
-      {modal === "installment" && <InstallmentForm categories={data.categories} primaryWalletId={primaryWalletId} onClose={() => setModal(null)} onSubmit={async value => { await db.installments.add({ id: newId(), ...value, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
-      {modal === "recurring" && <RecurringForm categories={data.categories} primaryWalletId={primaryWalletId} onClose={() => setModal(null)} onSubmit={async value => { await db.recurringRules.add({ id: newId(), ...value, active: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
+      {modal === "goal" && <GoalForm goal={data.goals.find(item => item.id === selectedGoalId)} onClose={() => { setSelectedGoalId(null); setModal(null); }} onSubmit={async value => {
+        const existing = data.goals.find(item => item.id === selectedGoalId);
+        const now = new Date().toISOString();
+        if (existing) await db.goals.update(existing.id, { ...value, updatedAt: now });
+        else await db.goals.add({ id: newId(), ...value, createdAt: now, updatedAt: now });
+        setSelectedGoalId(null); setModal(null); await refresh();
+      }} />}
+      {modal === "goal-entry" && selectedGoalId && <GoalEntryForm goal={data.goals.find(item => item.id === selectedGoalId)!} onClose={() => { setSelectedGoalId(null); setModal(null); }} onSubmit={async value => { await db.goalEntries.add({ id: newId(), goalId: selectedGoalId, ...value, createdAt: new Date().toISOString() }); setSelectedGoalId(null); setModal(null); await refresh(); }} />}
+      {modal === "installment" && <InstallmentForm
+        installment={data.installments.find(item => item.id === selectedInstallmentId)}
+        scheduleLocked={Boolean(selectedInstallmentId && data.installments.find(item => item.id === selectedInstallmentId) && paidInstallmentPeriods(data.installments.find(item => item.id === selectedInstallmentId)!, data.transactions).size)}
+        categories={data.categories}
+        primaryWalletId={primaryWalletId}
+        onClose={() => { setSelectedInstallmentId(null); setModal(null); }}
+        onSubmit={async value => {
+          const existing = data.installments.find(item => item.id === selectedInstallmentId);
+          const now = new Date().toISOString();
+          if (existing) await db.installments.update(existing.id, { ...value, updatedAt: now });
+          else await db.installments.add({ id: newId(), ...value, createdAt: now, updatedAt: now });
+          setSelectedInstallmentId(null); setModal(null); await refresh();
+        }}
+      />}
+      {modal === "recurring" && <RecurringForm
+        rule={data.rules.find(item => item.id === selectedRecurringRuleId)}
+        categories={data.categories}
+        primaryWalletId={primaryWalletId}
+        onClose={() => { setSelectedRecurringRuleId(null); setModal(null); }}
+        onSubmit={async value => {
+          const existing = data.rules.find(item => item.id === selectedRecurringRuleId);
+          const now = new Date().toISOString();
+          if (existing) {
+            await db.transaction("rw", db.recurringRules, db.recurringOccurrences, async () => {
+              await db.recurringRules.update(existing.id, { ...value, updatedAt: now });
+              const occurrences = await db.recurringOccurrences.where("ruleId").equals(existing.id).toArray();
+              await db.recurringOccurrences.bulkDelete(occurrences.filter(item => item.status === "pending").map(item => item.id));
+            });
+          } else {
+            await db.recurringRules.add({ id: newId(), ...value, active: true, createdAt: now, updatedAt: now });
+          }
+          setSelectedRecurringRuleId(null); setModal(null); await refresh();
+        }}
+      />}
       {modal === "backup" && <BackupForm onClose={() => setModal(null)} onDone={async password => { const encrypted = await encryptBackup(await exportBackup(), password); downloadFile(`daily-money-backup-${today()}.dailymoney`, JSON.stringify(encrypted), "application/json"); await db.settings.update("settings", { lastBackupAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "restore" && <RestoreForm inputRef={fileRef} onClose={() => setModal(null)} onRestore={async (file, password) => { if (file.size > 20 * 1024 * 1024) return alert("File backup quá lớn (vượt quá 20MB)."); const encrypted = JSON.parse(await file.text()); const backup = await decryptBackup(encrypted, password); const backupPrimaryWallet = primaryWallet(backup.wallets ?? []); const legacyWalletNote = backup.wallets && backup.wallets.length > 1 ? `\n\nBackup chứa ${backup.wallets.length} ví. Daily Money sẽ dùng ví chính: ${backupPrimaryWallet?.name ?? "ví active đầu tiên"}. Dữ liệu các ví cũ vẫn được giữ để không mất lịch sử.` : ""; if (!window.confirm(`Khôi phục ${backup.transactions?.length || 0} giao dịch? Dữ liệu hiện tại trên thiết bị sẽ bị thay thế.${legacyWalletNote}`)) return; const preRestorePayload = await exportBackup(); const preRestoreEncrypted = await encryptBackup(preRestorePayload, password); alert("Hệ thống chuẩn bị tải xuống một file sao lưu an toàn của dữ liệu HIỆN TẠI.\nLưu ý: File này sẽ dùng chung mật khẩu với file bạn đang khôi phục."); downloadFile(`daily-money-pre-restore-${today()}.dailymoney`, JSON.stringify(preRestoreEncrypted), "application/json"); if (!window.confirm("Ứng dụng đã yêu cầu trình duyệt tải bản lưu phòng hờ. Hãy kiểm tra file đã xuất hiện trong thư mục Tải xuống trước khi bấm OK tiếp tục.")) return; await restoreBackup(backup); setModal(null); await refresh(); }} />}
       {modal === "smart-plan" && <SmartPlanModal data={data} month={month} onClose={() => setModal(null)} onApplied={async () => { setModal(null); await refresh(); }} />}
       {modal === "pin" && <PinForm settings={data.settings} onClose={() => setModal(null)} onSave={async pin => { const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))); const pinHash = await hashPin(pin, salt); await db.settings.update("settings", { lockEnabled: true, pinHash, pinSalt: salt, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} onDisable={async () => { await db.settings.update("settings", { lockEnabled: false, pinHash: undefined, pinSalt: undefined, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "categories" && <CategoryManager categories={data.categories} onClose={() => setModal(null)} onChange={refresh} />}
       {modal === "opening-balance" && <OpeningBalanceForm current={currentPrimaryWallet?.initialBalance ?? data.settings.openingBalance} onClose={() => setModal(null)} onSave={async openingBalance => { await db.settings.update("settings", { openingBalance, updatedAt: new Date().toISOString() }); await db.wallets.update(primaryWalletId, { initialBalance: openingBalance, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
+      {modal === "minimum-reserve" && <MinimumReserveForm current={data.settings.minimumReserve ?? 0} onClose={() => setModal(null)} onSave={async minimumReserve => { await db.settings.update("settings", { minimumReserve, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "reminder" && <ReminderForm settings={data.settings} onClose={() => setModal(null)} onSave={async (enabled, reminderTime) => { if (isNativeApp()) { if (enabled) await setDailyReminder(reminderTime); else await clearDailyReminder(); } else if (enabled) await setWebPushReminder(reminderTime); else await clearWebPushReminder(); await db.settings.update("settings", { reminderEnabled: enabled, reminderTime, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
+      </Suspense>
     </main>
   );
 }

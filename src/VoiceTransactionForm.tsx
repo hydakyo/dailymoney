@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mic, Square, X, ClipboardPaste } from "lucide-react";
+import { Mic, Square, ClipboardPaste } from "lucide-react";
 import type { Category, EditableTransactionKind, RecurringRule, Transaction } from "./domain";
 import { today } from "./domain";
 import { parseVoiceTransaction } from "./voice";
 import { parseBankSms } from "./bank-parser";
 import { formatAmountInput, normalizeAmountInput } from "./amount";
+import { Modal } from "./components/ui/Modal";
 
 type TransactionInput = {
   id?: string;
@@ -24,11 +25,13 @@ type SpeechRecognizerConstructor = new () => SpeechRecognizer;
 
 export function VoiceTransactionForm({
   transaction,
+  initialDate,
   categories,
   onSubmit,
   onClose
 }: {
   transaction?: Transaction;
+  initialDate?: string;
   categories: Category[];
   onSubmit: (value: TransactionInput) => Promise<void>;
   onClose: () => void;
@@ -36,7 +39,7 @@ export function VoiceTransactionForm({
   const [kind, setKind] = useState<EditableTransactionKind>(transaction?.kind === "income" ? "income" : "expense");
   const [amount, setAmount] = useState(transaction ? String(transaction.amount) : "");
   const [categoryId, setCategoryId] = useState(transaction?.categoryId ?? "");
-  const [date, setDate] = useState(transaction?.date ?? today());
+  const [date, setDate] = useState(transaction?.date ?? initialDate ?? today());
   const [note, setNote] = useState(transaction?.note ?? "");
   const [recurring, setRecurring] = useState(false);
   const [frequency, setFrequency] = useState<RecurringRule["frequency"]>("monthly");
@@ -132,12 +135,7 @@ export function VoiceTransactionForm({
   };
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="modal" role="dialog" aria-modal="true" aria-label={transaction ? "Sửa giao dịch" : "Ghi giao dịch"}>
-        <div className="modal-head">
-          <h2>{transaction ? "Sửa giao dịch" : "Ghi giao dịch"}</h2>
-          <button className="icon-button" onClick={onClose} aria-label="Đóng"><X size={21} /></button>
-        </div>
+    <Modal title={transaction ? "Sửa giao dịch" : "Ghi giao dịch"} onClose={onClose}>
         
         {!transaction && (
           <div className="voice-card" style={{ marginBottom: 12 }}>
@@ -235,7 +233,6 @@ export function VoiceTransactionForm({
         >
           {transaction ? "Lưu thay đổi" : "Lưu giao dịch"}
         </button>
-      </section>
-    </div>
+    </Modal>
   );
 }

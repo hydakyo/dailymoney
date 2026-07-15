@@ -4,10 +4,13 @@ Daily Money là PWA quản lý tài chính cá nhân bằng tiếng Việt, lưu
 
 ## Chức năng
 
-- Thu/chi, số dư chung, danh mục, tìm kiếm, sửa và xóa giao dịch.
-- Ngân sách tháng theo danh mục, không rollover.
-- Giao dịch lặp cần xác nhận theo ngày, tuần, tháng hoặc năm; sổ phải thu/phải trả, mục tiêu tiết kiệm.
-- Báo cáo theo danh mục và xu hướng dòng tiền sáu tháng.
+- Thu/chi bằng biểu mẫu, giọng nói hoặc SMS ngân hàng; tìm kiếm không dấu, lọc, tổng hợp và nhóm giao dịch theo ngày.
+- Lịch thu/chi tương tác, mở chi tiết từng ngày và thêm nhanh giao dịch đúng ngày đã chọn.
+- Ngân sách tháng theo danh mục, sao chép tháng trước, Smart Plan và theo dõi tốc độ chi so với tiến độ tháng.
+- Giao dịch lặp, trả góp, sổ phải thu/phải trả và mục tiêu tiết kiệm; hỗ trợ tạo, sửa, tạm dừng và xóa an toàn.
+- Báo cáo dòng tiền ròng, tỷ lệ tiết kiệm, biến động danh mục, sức khỏe ngân sách và xu hướng 6/12 tháng.
+- Quản lý danh mục gồm đổi tên/màu, phân nhóm thiết yếu/tùy chọn, lưu trữ và khôi phục.
+- Giao diện sáng, tối hoặc tự động theo thiết bị.
 - PIN khóa giao diện; backup AES-GCM có mật khẩu và xuất CSV.
 - PWA có manifest, service worker và cấu hình Capacitor để bọc native về sau.
 

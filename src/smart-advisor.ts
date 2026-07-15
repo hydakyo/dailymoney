@@ -198,7 +198,7 @@ export function generateSmartPlan(data: AppData, currentMonth: string, selectedS
   const essentialHistory = historyTransactions.filter(transaction => categoryById.get(transaction.categoryId)?.financialClass === "essential");
   const historicalEssentialDailySpend = essentialHistory.reduce((sum, transaction) => sum + transaction.amount, 0) / Math.max(1, historyMonths.length * 30);
   const expectedFixedExpenses = (forecast?.expectedRecurringExpense ?? 0) + (forecast?.expectedInstallments ?? 0) + (forecast?.expectedDebtRepayments ?? 0);
-  const reserveFloor = roundUpToThousand(Math.max(historicalEssentialDailySpend * 7, expectedFixedExpenses * 0.05));
+  const reserveFloor = roundUpToThousand(Math.max(historicalEssentialDailySpend * 7, expectedFixedExpenses * 0.05, data.settings.minimumReserve ?? 0));
   const cashFlowInput = {
     balance,
     month: currentMonth,

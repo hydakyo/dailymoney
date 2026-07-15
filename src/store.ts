@@ -28,6 +28,8 @@ export const emptyData = (): AppData => ({
     lockEnabled: false,
     reminderEnabled: false,
     reminderTime: "20:00",
+    minimumReserve: 0,
+    theme: "system",
     createdAt: "",
     updatedAt: ""
   },

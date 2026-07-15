@@ -1,4 +1,4 @@
-import { Plus, Trash2, Landmark, HandCoins, Goal, CalendarDays, Smartphone, Copy } from "lucide-react";
+import { Plus, Trash2, Landmark, HandCoins, Goal, CalendarDays, Smartphone, Copy, Pencil } from "lucide-react";
 import type { Category, CollectionConfidence, Debt, GoalEntry, Installment, RecurringRule, SavingsGoal, Transaction } from "../../domain";
 import { formatVnd, today } from "../../domain";
 import { debtOutstanding, goalBalance, oldestUnpaidInstallmentPeriod, paidInstallmentPeriods } from "../../finance";
@@ -28,6 +28,11 @@ export function PlansView({
   canUseSmartPlan,
   onCopyPreviousBudgets,
   onToggleRule,
+  onEditBudget,
+  onEditDebt,
+  onEditGoal,
+  onEditRule,
+  onEditInstallment,
   onDeleteBudget,
   onDeleteDebt,
   onDeleteGoal,
@@ -54,6 +59,11 @@ export function PlansView({
   onUpdateDebt: (debtId: string, patch: Pick<Debt, "collectionConfidence">) => Promise<void>;
   onContribute: (id: string) => void;
   onToggleRule: (rule: RecurringRule) => Promise<void>;
+  onEditBudget: (id: string) => void;
+  onEditDebt: (id: string) => void;
+  onEditGoal: (id: string) => void;
+  onEditRule: (id: string) => void;
+  onEditInstallment: (id: string) => void;
   onDeleteBudget: (id: string) => Promise<void>;
   onDeleteDebt: (id: string) => Promise<void>;
   onDeleteGoal: (id: string) => Promise<void>;
@@ -133,6 +143,9 @@ export function PlansView({
                   <p>
                     {formatVnd(item.spent)} đã chi trong tổng {formatVnd(item.limit)}
                   </p>
+                  <button className="icon-button subtle" aria-label="Sửa ngân sách" onClick={() => onEditBudget(item.id)}>
+                    <Pencil size={17} />
+                  </button>
                   <button
                     className="icon-button subtle"
                     aria-label="Xóa ngân sách"
@@ -183,6 +196,9 @@ export function PlansView({
                   <div className="plan-actions" style={{ marginTop: 8 }}>
                     <p>Đã xác nhận: {paidMonths}/{item.totalMonths} kỳ · Hạn ngày {item.dueDate}</p>
                     {paidMonths < item.totalMonths && paymentPeriod && paymentPeriod <= currentPeriod && <button className="soft" onClick={() => void onPayInstallment(item).catch(error => window.alert(error instanceof Error && error.message === "duplicate-installment-payment" ? "Kỳ trả góp này đã được xác nhận." : "Không thể ghi khoản trả góp. Vui lòng thử lại."))}>Xác nhận {paymentPeriod === currentPeriod ? "trả kỳ này" : `trả bù ${paymentPeriod}`}</button>}
+                    <button className="icon-button subtle" aria-label="Sửa khoản trả góp" onClick={() => onEditInstallment(item.id)}>
+                      <Pencil size={17} />
+                    </button>
                     <button
                       className="icon-button subtle"
                       aria-label="Xóa khoản trả góp"
@@ -231,6 +247,9 @@ export function PlansView({
                         {item.kind === "payable" ? "Ghi trả nợ" : "Ghi thu nợ"}
                       </button>
                     )}
+                    <button className="icon-button subtle" aria-label="Sửa khoản công nợ" onClick={() => onEditDebt(item.id)}>
+                      <Pencil size={17} />
+                    </button>
                     <button
                       className="icon-button subtle"
                       aria-label="Xóa khoản nợ"
@@ -291,6 +310,9 @@ export function PlansView({
                     <button className="soft" onClick={() => onContribute(item.id)}>
                       Ghi đóng góp
                     </button>
+                    <button className="icon-button subtle" aria-label="Sửa mục tiêu" onClick={() => onEditGoal(item.id)}>
+                      <Pencil size={17} />
+                    </button>
                     <button
                       className="icon-button subtle"
                       aria-label="Xóa mục tiêu"
@@ -345,6 +367,9 @@ export function PlansView({
                   </p>
                   <div className="plan-actions">
                     <small>Kỳ tiếp theo: {rule.nextDueDate}</small>
+                    <button className="icon-button subtle" aria-label="Sửa quy tắc lặp" onClick={() => onEditRule(rule.id)}>
+                      <Pencil size={17} />
+                    </button>
                     <button
                       className="icon-button subtle"
                       aria-label="Xóa quy tắc lặp"

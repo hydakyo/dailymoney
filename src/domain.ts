@@ -7,6 +7,7 @@ export type Frequency = "daily" | "weekly" | "monthly" | "yearly";
 export type ObligationPriority = "essential" | "high" | "normal" | "flexible";
 export type FinancialClass = "essential" | "discretionary";
 export type CollectionConfidence = "certain" | "likely" | "uncertain";
+export type ThemePreference = "system" | "light" | "dark";
 
 export interface AppSettings {
   id: "settings";
@@ -18,6 +19,8 @@ export interface AppSettings {
   lockEnabled: boolean;
   reminderEnabled?: boolean;
   reminderTime?: string;
+  minimumReserve?: number;
+  theme?: ThemePreference;
   lastBackupAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -236,6 +239,8 @@ export const AppSettingsSchema = z.object({
   lockEnabled: z.boolean().catch(false),
   reminderEnabled: z.boolean().optional(),
   reminderTime: z.string().max(10).optional(),
+  minimumReserve: MoneySchema.optional(),
+  theme: z.enum(["system", "light", "dark"]).optional(),
   lastBackupAt: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
