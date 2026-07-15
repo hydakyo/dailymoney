@@ -166,9 +166,12 @@ export function SettingsView({
         </div>
       </Card>
       
-      <button className="danger full" onClick={onReset}>
-        Xóa toàn bộ dữ liệu trên thiết bị
-      </button>
+      <div className="danger-zone">
+        <button className="danger full" onClick={onReset}>
+          Xóa toàn bộ dữ liệu trên thiết bị
+        </button>
+        <small>{settings.lockEnabled ? "Yêu cầu nhập PIN trước khi xóa." : "Yêu cầu gõ cụm xác nhận; bật PIN để bảo vệ mạnh hơn."}</small>
+      </div>
     </div>
   );
 }

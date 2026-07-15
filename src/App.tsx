@@ -23,6 +23,7 @@ import { deleteDebtWithRelatedRecords, updateDebtFromDatabase } from "./debt-act
 import { updateGoalFromDatabase } from "./goal-actions";
 import { updateInstallmentFromDatabase } from "./installment-actions";
 import { learnCategoryFromText } from "./category-learning";
+import { confirmDeviceDataDeletion } from "./data-reset";
 import { DataRecoveryView } from "./components/views/DataRecoveryView";
 import { StorageRecoveryView } from "./components/views/StorageRecoveryView";
 
@@ -106,6 +107,13 @@ export default function App() {
   const floatingAddDragRef = useRef<{ pointerId: number; offsetX: number; offsetY: number; startX: number; startY: number; moved: boolean } | null>(null);
   const floatingAddPositionRef = useRef<FloatingAddPosition | null>(null);
   const suppressFloatingAddClickRef = useRef(false);
+
+  const resetDeviceData = async (settings?: typeof data.settings) => {
+    const currentSettings = settings ?? await db.settings.get("settings").catch(() => undefined);
+    if (!(await confirmDeviceDataDeletion(currentSettings))) return;
+    await db.delete();
+    window.location.reload();
+  };
 
   useEffect(() => {
     void refresh();
@@ -227,11 +235,7 @@ export default function App() {
     return <StorageRecoveryView
       error={loadError}
       onRetry={refresh}
-      onReset={async () => {
-        if (!window.confirm("Xóa toàn bộ dữ liệu Daily Money trên thiết bị này?")) return;
-        await db.delete();
-        window.location.reload();
-      }}
+      onReset={resetDeviceData}
     />;
   }
 
@@ -246,11 +250,7 @@ export default function App() {
         await db.wallets.add({ id: newId(), name: "Ví chính", icon: "Wallet", color: "#6d5dfc", initialBalance: data.settings.openingBalance, archived: false, createdAt: now, updatedAt: now });
         await refresh();
       }}
-      onReset={async () => {
-        if (!window.confirm("Xóa toàn bộ dữ liệu Daily Money trên thiết bị này?")) return;
-        await db.delete();
-        window.location.reload();
-      }}
+      onReset={() => resetDeviceData(data.settings)}
     />;
   }
   const primaryWalletId = requirePrimaryWalletId(data.wallets);
@@ -579,12 +579,7 @@ export default function App() {
               );
               downloadFile(`daily-money-${today()}.csv`, csv, "text/csv;charset=utf-8");
             }}
-            onReset={async () => {
-              if (window.confirm("Xóa toàn bộ dữ liệu Daily Money trên thiết bị này?")) {
-                await db.delete();
-                window.location.reload();
-              }
-            }}
+            onReset={() => { void resetDeviceData(data.settings); }}
           />
           </Suspense>
         )}
@@ -781,7 +776,7 @@ export default function App() {
         }}
       />}
       {modal === "backup" && <BackupForm onClose={() => setModal(null)} onDone={async password => { const encrypted = await encryptBackup(await exportBackup(), password); downloadFile(`daily-money-backup-${today()}.dailymoney`, JSON.stringify(encrypted), "application/json"); await db.settings.update("settings", { lastBackupAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
-      {modal === "restore" && <RestoreForm inputRef={fileRef} onClose={() => setModal(null)} onRestore={async (file, password) => { if (file.size > 20 * 1024 * 1024) return alert("File backup quá lớn (vượt quá 20MB)."); const encrypted = JSON.parse(await file.text()); const backup = await decryptBackup(encrypted, password); const backupPrimaryWallet = primaryWallet(backup.wallets ?? []); const legacyWalletNote = backup.wallets && backup.wallets.length > 1 ? `\n\nBackup chứa ${backup.wallets.length} ví. Daily Money sẽ dùng ví chính: ${backupPrimaryWallet?.name ?? "ví active đầu tiên"}. Dữ liệu các ví cũ vẫn được giữ để không mất lịch sử.` : ""; if (!window.confirm(`Khôi phục ${backup.transactions?.length || 0} giao dịch? Dữ liệu hiện tại trên thiết bị sẽ bị thay thế.${legacyWalletNote}`)) return; const preRestorePayload = await exportBackup(); const preRestoreEncrypted = await encryptBackup(preRestorePayload, password); alert("Hệ thống chuẩn bị tải xuống một file sao lưu an toàn của dữ liệu HIỆN TẠI.\nLưu ý: File này sẽ dùng chung mật khẩu với file bạn đang khôi phục."); downloadFile(`daily-money-pre-restore-${today()}.dailymoney`, JSON.stringify(preRestoreEncrypted), "application/json"); if (!window.confirm("Ứng dụng đã yêu cầu trình duyệt tải bản lưu phòng hờ. Hãy kiểm tra file đã xuất hiện trong thư mục Tải xuống trước khi bấm OK tiếp tục.")) return; await restoreBackup(backup); setModal(null); await refresh(); }} />}
+      {modal === "restore" && <RestoreForm inputRef={fileRef} onClose={() => setModal(null)} onRestore={async (file, password) => { if (file.size > 20 * 1024 * 1024) return alert("File backup quá lớn (vượt quá 20MB)."); const encrypted = JSON.parse(await file.text()); const backup = await decryptBackup(encrypted, password); if (!(await confirmDeviceDataDeletion(data.settings))) return; const backupPrimaryWallet = primaryWallet(backup.wallets ?? []); const legacyWalletNote = backup.wallets && backup.wallets.length > 1 ? `\n\nBackup chứa ${backup.wallets.length} ví. Daily Money sẽ dùng ví chính: ${backupPrimaryWallet?.name ?? "ví active đầu tiên"}. Dữ liệu các ví cũ vẫn được giữ để không mất lịch sử.` : ""; if (!window.confirm(`Khôi phục ${backup.transactions?.length || 0} giao dịch? Dữ liệu hiện tại trên thiết bị sẽ bị thay thế.${legacyWalletNote}`)) return; const preRestorePayload = await exportBackup(); const preRestoreEncrypted = await encryptBackup(preRestorePayload, password); alert("Hệ thống chuẩn bị tải xuống một file sao lưu an toàn của dữ liệu HIỆN TẠI.\nLưu ý: File này sẽ dùng chung mật khẩu với file bạn đang khôi phục."); downloadFile(`daily-money-pre-restore-${today()}.dailymoney`, JSON.stringify(preRestoreEncrypted), "application/json"); if (!window.confirm("Ứng dụng đã yêu cầu trình duyệt tải bản lưu phòng hờ. Hãy kiểm tra file đã xuất hiện trong thư mục Tải xuống trước khi bấm OK tiếp tục.")) return; await restoreBackup(backup); setModal(null); await refresh(); }} />}
       {modal === "smart-plan" && <SmartPlanModal data={data} month={month} onClose={() => setModal(null)} onApplied={async () => { setModal(null); await refresh(); }} />}
       {modal === "pin" && <PinForm settings={data.settings} onClose={() => setModal(null)} onSave={async pin => { const salt = toBase64(crypto.getRandomValues(new Uint8Array(16))); const pinHash = await hashPin(pin, salt); await db.settings.update("settings", { lockEnabled: true, pinHash, pinSalt: salt, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} onDisable={async () => { await db.settings.update("settings", { lockEnabled: false, pinHash: undefined, pinSalt: undefined, updatedAt: new Date().toISOString() }); setModal(null); await refresh(); }} />}
       {modal === "categories" && <CategoryManager categories={data.categories} onClose={() => setModal(null)} onChange={refresh} />}

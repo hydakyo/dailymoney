@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, Download, RefreshCcw, Trash2 } from "lucide-react";
 import { downloadFile } from "../backup";
 import { db, exportBackup } from "../db";
+import { confirmDeviceDataDeletion } from "../data-reset";
 
 type State = { error: Error | null; busy: boolean; message: string };
 
@@ -38,7 +39,8 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, State> 
           this.setState({ message: "Đã yêu cầu trình duyệt tải dữ liệu khôi phục thô." });
         })}><Download size={18} /> Xuất dữ liệu khôi phục</button>
         <button className="text-button danger-text full" disabled={this.state.busy} onClick={() => void this.run(async () => {
-          if (!window.confirm("Xóa toàn bộ dữ liệu Daily Money trên thiết bị này? Hãy xuất dữ liệu khôi phục trước nếu cần.")) return;
+          const settings = await db.settings.get("settings").catch(() => undefined);
+          if (!(await confirmDeviceDataDeletion(settings))) return;
           await db.delete();
           window.location.reload();
         })}><Trash2 size={18} /> Xóa dữ liệu và khởi tạo lại</button>

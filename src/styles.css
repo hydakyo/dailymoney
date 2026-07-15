@@ -772,6 +772,8 @@ button:focus-visible, a:focus-visible {
 .suggestion-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 12px; }
 .suggestion-row small { color: var(--text-muted); }
 .suggestion-row button { min-height: 32px; padding: 5px 9px; font-size: 0.82rem; }
+.danger-zone { display: grid; gap: 7px; }
+.danger-zone small { text-align: center; color: var(--text-muted); }
 .category-manage-row select { flex: 0 1 112px; min-width: 0; padding: 6px; font-size: 12px; }
 .category-status-switch { margin: 10px 0 6px; }
 .category-status-switch button { flex: 1; }
