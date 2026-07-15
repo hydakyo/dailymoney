@@ -8,6 +8,10 @@
 @import "@fontsource/inter/vietnamese-800.css";
 
 :root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
   --bg-app: #f7f7ff;
   --bg-card: #ffffff;
@@ -176,7 +180,7 @@ button:focus-visible, a:focus-visible {
   min-height: 100dvh;
   max-width: 560px;
   margin: 0 auto;
-  padding: calc(20px + env(safe-area-inset-top)) 18px calc(98px + env(safe-area-inset-bottom));
+  padding: calc(20px + var(--safe-top)) 18px calc(98px + var(--safe-bottom));
   position: relative;
 }
 
@@ -460,7 +464,7 @@ button:focus-visible, a:focus-visible {
 .quick-add-fab {
   position: fixed;
   left: 50%;
-  bottom: calc(74px + env(safe-area-inset-bottom));
+  bottom: calc(74px + var(--safe-bottom));
   width: 60px;
   height: 60px;
   transform: translateX(-50%);
@@ -485,7 +489,7 @@ button:focus-visible, a:focus-visible {
   left: 50%;
   transform: translateX(-50%);
   width: min(100%, 560px);
-  padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+  padding: 10px 10px calc(10px + var(--safe-bottom));
   background: var(--bg-card);
   backdrop-filter: blur(18px);
   border-top: 1px solid var(--border);
@@ -795,7 +799,7 @@ button:focus-visible, a:focus-visible {
   min-height: 100dvh;
   max-width: 480px;
   margin: auto;
-  padding: calc(78px + env(safe-area-inset-top)) 28px 30px;
+  padding: calc(78px + var(--safe-top)) 28px 30px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;

@@ -25,4 +25,22 @@ describe("home advisor cash-flow signals", () => {
     expect(advice.some(item => item.id === "all_good")).toBe(false);
     expect(advice.some(item => item.id === "high_savings")).toBe(false);
   });
+
+  it("uses due unpaid installment periods and proposes a goal when old goals are closed", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-14T12:00:00.000Z"));
+    const data: AppData = {
+      settings: { id: "settings", onboardingComplete: true, openingBalance: 0, currency: "VND", lockEnabled: false, createdAt: "", updatedAt: "" },
+      wallets: [{ id: "wallet", name: "Wallet", icon: "Wallet", color: "#000", initialBalance: 0, archived: false, createdAt: "", updatedAt: "" }],
+      categories: [{ id: "shopping", kind: "expense", name: "Shopping", icon: "Bag", color: "#000", archived: false, builtIn: true, createdAt: "" }],
+      transactions: [], budgets: [], occurrences: [], debts: [], payments: [], goalEntries: [], rules: [],
+      goals: [{ id: "completed", name: "Done", target: 1, color: "#000", icon: "Goal", closedAt: "2026-07-01", createdAt: "", updatedAt: "" }],
+      installments: [{ id: "installment", name: "Laptop", totalAmount: 900_000, monthlyAmount: 300_000, totalMonths: 3, startDate: "2026-05-01", dueDate: 15, categoryId: "shopping", walletId: "wallet", createdAt: "", updatedAt: "" }]
+    };
+
+    const advice = generateAdvice(data, "2026-07");
+
+    expect(advice.some(item => item.id === "installment_no_income")).toBe(true);
+    expect(advice.some(item => item.id === "no_goals")).toBe(true);
+  });
 });

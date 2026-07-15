@@ -20,6 +20,8 @@ import { generateAdvice } from "./advisor";
 import { primaryWallet, requirePrimaryWalletId } from "./wallet";
 import { isLegacyTransfer, normalizeEditableTransaction, requireMatchingActiveCategory } from "./transaction";
 import { deleteDebtWithRelatedRecords, updateDebtFromDatabase } from "./debt-actions";
+import { updateGoalFromDatabase } from "./goal-actions";
+import { updateInstallmentFromDatabase } from "./installment-actions";
 import { DataRecoveryView } from "./components/views/DataRecoveryView";
 import { StorageRecoveryView } from "./components/views/StorageRecoveryView";
 
@@ -48,6 +50,24 @@ type Tab = "home" | "transactions" | "plans" | "reports" | "settings";
 type PlanSection = "budgets" | "debts" | "goals" | "installments" | "recurring";
 type FloatingAddPosition = { left: number; top: number };
 const FLOATING_ADD_POSITION_KEY = "daily-money-floating-add-position-v1";
+const FLOATING_ADD_SIZE = 60;
+const FLOATING_ADD_EDGE = 8;
+const TABBAR_HEIGHT = 76;
+
+function safeAreaInset(name: "top" | "right" | "bottom" | "left") {
+  return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue(`--safe-${name}`)) || 0;
+}
+
+function clampFloatingAddPosition(position: FloatingAddPosition): FloatingAddPosition {
+  const minLeft = safeAreaInset("left") + FLOATING_ADD_EDGE;
+  const maxLeft = Math.max(minLeft, window.innerWidth - FLOATING_ADD_SIZE - safeAreaInset("right") - FLOATING_ADD_EDGE);
+  const minTop = safeAreaInset("top") + FLOATING_ADD_EDGE;
+  const maxTop = Math.max(minTop, window.innerHeight - FLOATING_ADD_SIZE - TABBAR_HEIGHT - safeAreaInset("bottom"));
+  return {
+    left: Math.min(Math.max(minLeft, position.left), maxLeft),
+    top: Math.min(Math.max(minTop, position.top), maxTop)
+  };
+}
 type TransactionInput = {
   id?: string;
   kind: EditableTransactionKind;
@@ -119,11 +139,7 @@ export default function App() {
     const clampFloatingAdd = () => {
       const current = floatingAddPositionRef.current;
       if (!current) return;
-      const size = 60;
-      const next = {
-        left: Math.min(Math.max(8, current.left), Math.max(8, window.innerWidth - size - 8)),
-        top: Math.min(Math.max(8, current.top), Math.max(8, window.innerHeight - size - 76))
-      };
+      const next = clampFloatingAddPosition(current);
       if (next.left === current.left && next.top === current.top) return;
       floatingAddPositionRef.current = next;
       setFloatingAddPosition(next);
@@ -159,9 +175,10 @@ export default function App() {
   const moveFloatingAdd = (event: PointerEvent<HTMLButtonElement>) => {
     const drag = floatingAddDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const size = 60;
-    const left = Math.min(Math.max(8, event.clientX - drag.offsetX), window.innerWidth - size - 8);
-    const top = Math.min(Math.max(8, event.clientY - drag.offsetY), window.innerHeight - size - 76);
+    const { left, top } = clampFloatingAddPosition({
+      left: event.clientX - drag.offsetX,
+      top: event.clientY - drag.offsetY
+    });
     if (Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4) drag.moved = true;
     const next = { left, top };
     floatingAddPositionRef.current = next;
@@ -495,7 +512,8 @@ export default function App() {
             onDeleteRule={async ruleId => {
               await db.transaction("rw", db.recurringRules, db.recurringOccurrences, async () => {
                 await db.recurringOccurrences.where("ruleId").equals(ruleId).delete();
-                await db.recurringRules.delete(ruleId);
+                // Keep the rule as a historical reference for confirmed transactions.
+                await db.recurringRules.update(ruleId, { active: false, archived: true, updatedAt: new Date().toISOString() });
               });
               await refresh();
             }}
@@ -691,10 +709,13 @@ export default function App() {
       {modal === "goal" && <GoalForm goal={data.goals.find(item => item.id === selectedGoalId)} onClose={() => { setSelectedGoalId(null); setModal(null); }} onSubmit={async value => {
         if (!Number.isSafeInteger(value.target) || value.target <= 0) throw new Error("Mục tiêu tiền không hợp lệ.");
         if (value.targetDate && !isValidDate(value.targetDate)) throw new Error("Ngày mục tiêu không hợp lệ.");
-        const existing = data.goals.find(item => item.id === selectedGoalId);
         const now = new Date().toISOString();
-        if (existing) await db.goals.update(existing.id, { ...value, updatedAt: now });
-        else await db.goals.add({ id: newId(), ...value, createdAt: now, updatedAt: now });
+        if (selectedGoalId) {
+          const result = await updateGoalFromDatabase(db, selectedGoalId, value, now);
+          if (result.status === "not-found") throw new Error("Mục tiêu này không còn tồn tại.");
+        } else {
+          await db.goals.add({ id: newId(), ...value, createdAt: now, updatedAt: now });
+        }
         setSelectedGoalId(null); setModal(null); await refresh();
       }} />}
       {modal === "goal-entry" && selectedGoalId && <GoalEntryForm goal={data.goals.find(item => item.id === selectedGoalId)!} onClose={() => { setSelectedGoalId(null); setModal(null); }} onSubmit={async value => {
@@ -722,10 +743,13 @@ export default function App() {
         onSubmit={async value => {
           if (!Number.isSafeInteger(value.totalAmount) || value.totalAmount <= 0 || !Number.isSafeInteger(value.monthlyAmount) || value.monthlyAmount <= 0 || !Number.isSafeInteger(value.totalMonths) || value.totalMonths <= 0) throw new Error("Thông tin trả góp không hợp lệ.");
           if (!isValidDate(value.startDate)) throw new Error("Ngày bắt đầu trả góp không hợp lệ.");
-          const existing = data.installments.find(item => item.id === selectedInstallmentId);
           const now = new Date().toISOString();
-          if (existing) await db.installments.update(existing.id, { ...value, updatedAt: now });
-          else await db.installments.add({ id: newId(), ...value, createdAt: now, updatedAt: now });
+          if (selectedInstallmentId) {
+            const result = await updateInstallmentFromDatabase(db, selectedInstallmentId, value, now);
+            if (result.status === "not-found") throw new Error("Khoản trả góp này không còn tồn tại.");
+          } else {
+            await db.installments.add({ id: newId(), ...value, createdAt: now, updatedAt: now });
+          }
           setSelectedInstallmentId(null); setModal(null); await refresh();
         }}
       />}

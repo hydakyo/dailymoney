@@ -92,6 +92,8 @@ export interface RecurringRule {
   endDate?: string;
   priority?: ObligationPriority;
   active: boolean;
+  /** Archived rules retain the semantic link on historical transactions. */
+  archived?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -324,6 +326,7 @@ export const RecurringRuleSchema = z.object({
   endDate: DateSchema.optional(),
   priority: z.enum(["essential", "high", "normal", "flexible"]).optional(),
   active: z.boolean(),
+  archived: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -71,6 +71,7 @@ export function PlansView({
   onDeleteInstallment: (id: string) => Promise<void>;
   onPayInstallment: (installment: Installment) => Promise<void>;
 }) {
+  const visibleRules = rules.filter(rule => !rule.archived);
   const labels: Record<PlanSection, string> = {
     budgets: "Ngân sách",
     installments: "Trả góp",
@@ -339,8 +340,8 @@ export function PlansView({
 
       {section === "recurring" && (
         <div className="stack">
-          {rules.length ? (
-            rules.map(rule => {
+          {visibleRules.length ? (
+            visibleRules.map(rule => {
               const category = categories.find(item => item.id === rule.categoryId);
               const frequencyLabel =
                 rule.frequency === "daily"

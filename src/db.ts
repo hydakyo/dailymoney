@@ -350,8 +350,17 @@ export function prepareRestorePayload(payload: BackupPayloadV1 | BackupPayloadV2
   ] as const) assertUnique(records as Array<{ id: string }>, label);
   const walletIds = new Set(wallets.map(item => item.id));
   const categoryIds = new Set(categories.map(item => item.id));
-  const transactionIds = new Set(transactions.map(item => item.id));
+  const categoriesById = new Map(categories.map(item => [item.id, item]));
   const ruleIds = new Set(rules.map(item => item.id));
+  // Older releases deleted rules but retained their confirmed transactions.
+  // Keep those expenses on restore, while clearing the impossible link. New
+  // deletes archive their rule instead, so future backups retain the link.
+  transactions = transactions.map(transaction =>
+    transaction.recurringRuleId && !ruleIds.has(transaction.recurringRuleId)
+      ? { ...transaction, recurringRuleId: undefined }
+      : transaction
+  );
+  const transactionIds = new Set(transactions.map(item => item.id));
   const debtIds = new Set(debts.map(item => item.id));
   const goalIds = new Set(goals.map(item => item.id));
   const installmentIds = new Set(installments.map(item => item.id));
@@ -359,10 +368,17 @@ export function prepareRestorePayload(payload: BackupPayloadV1 | BackupPayloadV2
   for (const transaction of transactions) {
     if (payload.schemaVersion >= 2) requireReference(walletIds.has(transaction.walletId), "giao dịch trỏ tới ví không tồn tại");
     requireReference(categoryIds.has(transaction.categoryId), "giao dịch trỏ tới danh mục không tồn tại");
+    if (transaction.kind !== "transfer") requireReference(categoriesById.get(transaction.categoryId)?.kind === transaction.kind, "loại giao dịch không khớp danh mục");
     if (payload.schemaVersion >= 2 && transaction.toWalletId) requireReference(walletIds.has(transaction.toWalletId), "giao dịch chuyển tiền trỏ tới ví không tồn tại");
-    if (transaction.installmentId) requireReference(installmentIds.has(transaction.installmentId), "giao dịch trỏ tới trả góp không tồn tại");
+    if (transaction.installmentId) {
+      requireReference(installmentIds.has(transaction.installmentId), "giao dịch trỏ tới trả góp không tồn tại");
+      requireReference(transaction.kind === "expense", "thanh toán trả góp phải là giao dịch chi");
+    }
   }
-  for (const budget of budgets) requireReference(categoryIds.has(budget.categoryId), "ngân sách trỏ tới danh mục không tồn tại");
+  for (const budget of budgets) {
+    requireReference(categoryIds.has(budget.categoryId), "ngân sách trỏ tới danh mục không tồn tại");
+    requireReference(categoriesById.get(budget.categoryId)?.kind === "expense", "ngân sách phải dùng danh mục chi");
+  }
   const budgetKeys = new Set<string>();
   for (const budget of budgets) {
     const key = `${budget.month}:${budget.categoryId}`;
@@ -371,9 +387,14 @@ export function prepareRestorePayload(payload: BackupPayloadV1 | BackupPayloadV2
   }
   for (const rule of rules) {
     requireReference(categoryIds.has(rule.categoryId), "giao dịch lặp trỏ tới danh mục không tồn tại");
+    requireReference(rule.kind === "transfer" || categoriesById.get(rule.categoryId)?.kind === rule.kind, "loại giao dịch lặp không khớp danh mục");
     if (payload.schemaVersion >= 2 && rule.walletId) requireReference(walletIds.has(rule.walletId), "giao dịch lặp trỏ tới ví không tồn tại");
   }
-  for (const occurrence of occurrences) requireReference(ruleIds.has(occurrence.ruleId), "kỳ lặp trỏ tới giao dịch lặp không tồn tại");
+  for (const occurrence of occurrences) {
+    requireReference(ruleIds.has(occurrence.ruleId), "kỳ lặp trỏ tới giao dịch lặp không tồn tại");
+    if (occurrence.status === "confirmed") requireReference(Boolean(occurrence.transactionId && transactionIds.has(occurrence.transactionId)), "kỳ lặp đã xác nhận thiếu giao dịch");
+    if (occurrence.transactionId) requireReference(transactionIds.has(occurrence.transactionId), "kỳ lặp trỏ tới giao dịch không tồn tại");
+  }
   for (const payment of payments) {
     requireReference(debtIds.has(payment.debtId), "thanh toán công nợ trỏ tới khoản nợ không tồn tại");
     requireReference(transactionIds.has(payment.transactionId), "thanh toán công nợ trỏ tới giao dịch không tồn tại");
@@ -389,9 +410,41 @@ export function prepareRestorePayload(payload: BackupPayloadV1 | BackupPayloadV2
     requireReference(!transaction.debtPaymentId || transaction.debtPaymentId === payment.id, "thanh toán công nợ không khớp giao dịch liên kết");
     return transaction.debtPaymentId ? transaction : { ...transaction, debtPaymentId: payment.id };
   });
+  const paymentsById = new Map(payments.map(payment => [payment.id, payment]));
+  const transactionsById = new Map(transactions.map(transaction => [transaction.id, transaction]));
+  const debtsById = new Map(debts.map(debt => [debt.id, debt]));
+  for (const transaction of transactions) {
+    if (transaction.debtPaymentId) requireReference(paymentsById.has(transaction.debtPaymentId), "giao dịch trỏ tới thanh toán công nợ không tồn tại");
+    if (transaction.recurringRuleId) {
+      requireReference(ruleIds.has(transaction.recurringRuleId), "giao dịch lặp trỏ tới quy tắc không tồn tại");
+      const rule = rules.find(item => item.id === transaction.recurringRuleId)!;
+      requireReference(rule.kind === transaction.kind && rule.categoryId === transaction.categoryId, "giao dịch lặp không khớp quy tắc liên kết");
+    }
+  }
+  for (const payment of payments) {
+    const transaction = transactionsById.get(payment.transactionId)!;
+    const debt = debtsById.get(payment.debtId)!;
+    requireReference(transaction.amount === payment.amount, "số tiền thanh toán công nợ không khớp giao dịch");
+    requireReference(transaction.kind === (debt.kind === "payable" ? "expense" : "income"), "loại thanh toán công nợ không khớp khoản nợ");
+  }
+  for (const debt of debts) {
+    const paid = payments.filter(payment => payment.debtId === debt.id).reduce((sum, payment) => sum + payment.amount, 0);
+    requireReference(paid <= debt.principal, "tổng thanh toán công nợ vượt số tiền gốc");
+  }
   for (const entry of entries) requireReference(goalIds.has(entry.goalId), "đóng góp mục tiêu trỏ tới mục tiêu không tồn tại");
+  for (const goal of goals) {
+    const ledger = entries
+      .filter(entry => entry.goalId === goal.id)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    let balance = 0;
+    for (const entry of ledger) {
+      balance += entry.direction === "contribution" ? entry.amount : -entry.amount;
+      requireReference(balance >= 0, "rút mục tiêu vượt số dư đã đóng góp");
+    }
+  }
   for (const installment of installments) {
     requireReference(categoryIds.has(installment.categoryId), "trả góp trỏ tới danh mục không tồn tại");
+    requireReference(categoriesById.get(installment.categoryId)?.kind === "expense", "trả góp phải dùng danh mục chi");
     requireReference(walletIds.has(installment.walletId), "trả góp trỏ tới ví không tồn tại");
   }
   return { ...payload, transactions, settings: normalizeRestoredSettings(payload.settings) };

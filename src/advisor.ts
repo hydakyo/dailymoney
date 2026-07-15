@@ -1,6 +1,6 @@
 import type { AppData } from "./store";
 import { currentMonth as actualCurrentMonth } from "./domain";
-import { budgetProgress, cashFlowScenarios, monthTotals, totalBalance, debtOutstanding } from "./finance";
+import { budgetProgress, cashFlowScenarios, debtOutstanding, installmentPaymentAmount, installmentPeriods, monthTotals, paidInstallmentPeriods, totalBalance } from "./finance";
 
 export type AdviceLevel = "danger" | "warning" | "success" | "info";
 
@@ -182,16 +182,11 @@ export function generateAdvice(data: AppData, currentMonth: string): Advice[] {
   }
   
   let monthlyInstallmentBurden = 0;
-  const [currentY, currentM] = currentMonth.split("-").map(Number);
-  
   for (const inst of data.installments) {
     if (inst.closedAt) continue;
-    const [startY, startM] = inst.startDate.split("-").map(Number);
-    // Số tháng đã trôi qua kể từ startDate
-    const diffMonths = (currentY - startY) * 12 + (currentM - startM);
-    if (diffMonths >= 0 && diffMonths < inst.totalMonths) {
-      monthlyInstallmentBurden += inst.monthlyAmount;
-    }
+    const paidPeriods = paidInstallmentPeriods(inst, data.transactions);
+    const dueUnpaidPeriods = installmentPeriods(inst).filter(period => period <= currentMonth && !paidPeriods.has(period));
+    monthlyInstallmentBurden += dueUnpaidPeriods.reduce((sum, period) => sum + installmentPaymentAmount(inst, period), 0);
   }
 
   if (totalOutstanding > balance && balance > 0) {
@@ -223,7 +218,7 @@ export function generateAdvice(data: AppData, currentMonth: string): Advice[] {
   }
 
   // 5. Quỹ khẩn cấp
-  if (data.goals.length === 0) {
+  if (!data.goals.some(goal => !goal.closedAt)) {
     advices.push({
       id: "no_goals",
       level: "info",

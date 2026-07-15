@@ -109,6 +109,43 @@ describe("E2E Restore", () => {
     expect(prepared.transactions[0].debtPaymentId).toBe("payment");
   });
 
+  it("rejects semantic restore inconsistencies and normalizes legacy deleted recurring links", () => {
+    expect(() => prepareRestorePayload({
+      ...payloadV3, wallets: [wallet], categories: [shopping],
+      transactions: [{ ...debtTransaction, id: "income", kind: "income", debtPaymentId: undefined }]
+    })).toThrow("loại giao dịch không khớp danh mục");
+    expect(() => prepareRestorePayload({
+      ...payloadV3, wallets: [wallet], categories: [shopping],
+      recurringOccurrences: [{ id: "occurrence", ruleId: "missing", dueDate: "2026-07-15", status: "confirmed", transactionId: "missing", createdAt: "", updatedAt: "" }]
+    })).toThrow("kỳ lặp trỏ tới giao dịch lặp không tồn tại");
+    expect(() => prepareRestorePayload({
+      ...payloadV3, wallets: [wallet], categories: [shopping],
+      recurringRules: [{ id: "rule", kind: "expense", amount: 100_000, categoryId: "shopping", walletId: "wallet", frequency: "monthly", interval: 1, dayOfMonth: 15, startDate: "2026-07-01", nextDueDate: "2026-07-15", active: true, createdAt: "", updatedAt: "" }],
+      recurringOccurrences: [{ id: "occurrence", ruleId: "rule", dueDate: "2026-07-15", status: "confirmed", transactionId: "missing", createdAt: "", updatedAt: "" }]
+    })).toThrow("kỳ lặp đã xác nhận thiếu giao dịch");
+    expect(() => prepareRestorePayload({
+      ...richPayloadV3, wallets: [wallet], categories: [shopping], transactions: [debtTransaction],
+      debts: [{ ...richPayloadV3.debts[0], principal: 400_000 }]
+    })).toThrow("tổng thanh toán công nợ vượt số tiền gốc");
+    expect(() => prepareRestorePayload({
+      ...richPayloadV3, wallets: [wallet], categories: [shopping], transactions: [debtTransaction],
+      goalEntries: [{ ...richPayloadV3.goalEntries[0], direction: "withdrawal", amount: 2_000_000 }]
+    })).toThrow("rút mục tiêu vượt số dư");
+    expect(() => prepareRestorePayload({
+      ...richPayloadV3, wallets: [wallet], categories: [shopping], transactions: [debtTransaction],
+      goalEntries: [
+        { id: "withdraw-first", goalId: "goal", amount: 1_000_000, direction: "withdrawal", date: "2026-07-01", createdAt: "" },
+        { id: "contribute-later", goalId: "goal", amount: 1_000_000, direction: "contribution", date: "2026-07-02", createdAt: "" }
+      ]
+    })).toThrow("rút mục tiêu vượt số dư");
+
+    const prepared = prepareRestorePayload({
+      ...payloadV3, wallets: [wallet], categories: [shopping],
+      transactions: [{ ...debtTransaction, debtPaymentId: undefined, recurringRuleId: "legacy-deleted-rule" }]
+    });
+    expect(prepared.transactions[0].recurringRuleId).toBeUndefined();
+  });
+
   it("exports, clears and restores the complete database", async () => {
     const completePayload = { ...richPayloadV3, wallets: [wallet], categories: [shopping], transactions: [debtTransaction] };
     // Seed full database
