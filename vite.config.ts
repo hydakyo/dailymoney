@@ -7,7 +7,12 @@ export default defineConfig({
     allowedHosts: ["dm.kelvin.io.vn"]
   },
   preview: {
-    allowedHosts: ["dm.kelvin.io.vn"]
+    allowedHosts: ["dm.kelvin.io.vn"],
+    // The service-worker script must be revalidated on iOS. Vite preview's
+    // default four-hour cache can otherwise keep an installed PWA on an old UI.
+    headers: {
+      "Cache-Control": "no-cache, no-store, must-revalidate"
+    }
   },
   build: {
     rollupOptions: {
