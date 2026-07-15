@@ -43,8 +43,10 @@ export function TransactionForm({
   );
   
   React.useEffect(() => {
-    if (!transaction) setCategoryId(relevant[0]?.id ?? "");
-  }, [relevant, transaction]);
+    if (!relevant.some(category => category.id === categoryId)) {
+      setCategoryId(relevant[0]?.id ?? "");
+    }
+  }, [categoryId, relevant]);
 
   return (
     <Modal title={transaction ? "Sửa giao dịch" : "Ghi giao dịch"} onClose={onClose}>

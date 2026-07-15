@@ -18,7 +18,8 @@ import { Unlock } from "./components/views/Unlock";
 import { hashPin, toBase64 } from "./utils";
 import { generateAdvice } from "./advisor";
 import { primaryWallet, requirePrimaryWalletId } from "./wallet";
-import { isLegacyTransfer, normalizeEditableTransaction } from "./transaction";
+import { isLegacyTransfer, normalizeEditableTransaction, requireMatchingActiveCategory } from "./transaction";
+import { deleteDebtWithRelatedRecords, updateDebtFromDatabase } from "./debt-actions";
 import { DataRecoveryView } from "./components/views/DataRecoveryView";
 
 const ReportsView = lazy(() => import("./components/views/ReportsView").then(module => ({ default: module.ReportsView })));
@@ -144,6 +145,7 @@ export default function App() {
 
   const addTransaction = async (input: TransactionInput) => {
     const now = new Date().toISOString();
+    requireMatchingActiveCategory(data.categories, input);
     const transactionValues = normalizeEditableTransaction(input, primaryWalletId);
     if (input.id) {
       await db.transactions.update(input.id, {
@@ -364,7 +366,7 @@ export default function App() {
             onEditRule={id => { setSelectedRecurringRuleId(id); setModal("recurring"); }}
             onEditInstallment={id => { setSelectedInstallmentId(id); setModal("installment"); }}
             onDeleteBudget={async id => { await db.budgets.delete(id); await refresh(); }}
-            onDeleteDebt={async id => { await db.transaction("rw", db.debts, db.debtPayments, db.transactions, async () => { const payments = data.payments.filter(p => p.debtId === id); await db.transactions.bulkDelete(payments.map(p => p.transactionId)); await db.debtPayments.bulkDelete(payments.map(p => p.id)); await db.debts.delete(id); }); await refresh(); }}
+            onDeleteDebt={async id => { await deleteDebtWithRelatedRecords(db, id); await refresh(); }}
             onDeleteGoal={async id => { await db.transaction("rw", db.goals, db.goalEntries, async () => { await db.goalEntries.where("goalId").equals(id).delete(); await db.goals.delete(id); }); await refresh(); }}
             onDeleteRule={async ruleId => {
               await db.transaction("rw", db.recurringRules, db.recurringOccurrences, async () => {
@@ -486,15 +488,18 @@ export default function App() {
       )}
       {modal === "debt" && (
         <DebtForm debt={data.debts.find(item => item.id === selectedDebtId)} onClose={() => { setSelectedDebtId(null); setModal(null); }} onSubmit={async value => {
-          const existing = data.debts.find(item => item.id === selectedDebtId);
           const now = new Date().toISOString();
-          if (existing) {
-            const paid = data.payments.filter(item => item.debtId === existing.id).reduce((sum, item) => sum + item.amount, 0);
-            if (value.principal < paid) {
-              window.alert(`Số tiền gốc không thể thấp hơn ${formatVnd(paid)} đã thanh toán.`);
+          if (selectedDebtId) {
+            const result = await updateDebtFromDatabase(db, selectedDebtId, value, now);
+            if (result.status === "principal-below-paid") {
+              window.alert(`Số tiền gốc không thể thấp hơn ${formatVnd(result.paid)} đã thanh toán.`);
               return;
             }
-            await db.debts.update(existing.id, { ...value, closedAt: paid > 0 && value.principal <= paid ? existing.closedAt ?? now : undefined, updatedAt: now });
+            if (result.status === "not-found") {
+              window.alert("Khoản công nợ này không còn tồn tại.");
+              await refresh();
+              return;
+            }
           } else {
             await db.debts.add({ id: newId(), ...value, createdAt: now, updatedAt: now });
           }
