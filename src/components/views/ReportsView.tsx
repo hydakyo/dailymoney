@@ -68,6 +68,7 @@ export function ReportsView({
   month: string;
   onMonth: (value: string) => void;
 }) {
+
   const [chartType, setChartType] = useState<"bar" | "doughnut">("doughnut");
   const totals = monthTotals(transactions, month);
   const previousTotals = monthTotals(transactions, addMonths(month, -1));

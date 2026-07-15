@@ -64,7 +64,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const [wallets, categories, transactions, budgets, rules, occurrences, debts, payments, goals, goalEntries, installments] = await Promise.all([
       db.wallets.toArray(),
       db.categories.toArray(),
-      db.transactions.orderBy("date").reverse().toArray(),
+      db.transactions.reverse().toArray(),
       db.budgets.toArray(),
       db.recurringRules.toArray(),
       db.recurringOccurrences.toArray(),

@@ -8,7 +8,11 @@
   "ratelimits": [{
     "name": "SUBSCRIPTION_LIMITER",
     "namespace_id": "91260714",
-    "simple": { "limit": 5, "period": 60 }
+    "simple": { "limit": 20, "period": 60 }
   }],
-  "triggers": { "crons": ["* * * * *"] }
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    "MAX_SUBSCRIPTIONS": "1000",
+    "ALLOWED_ORIGINS": "https://dm.kelvin.io.vn,http://localhost:5173,http://localhost:4173"
+  }
 }

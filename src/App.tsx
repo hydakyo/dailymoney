@@ -160,8 +160,10 @@ export default function App() {
     }
     
     await db.transaction("rw", db.transactions, db.recurringRules, async () => {
+      const ruleId = input.recurring ? newId() : undefined;
       const transaction: Transaction = {
         id: newId(),
+        recurringRuleId: ruleId,
         ...transactionValues,
         createdAt: now,
         updatedAt: now
@@ -169,7 +171,7 @@ export default function App() {
       await db.transactions.add(transaction);
       if (input.recurring) {
         const draft: RecurringRule = {
-          id: newId(),
+          id: ruleId as string,
           kind: transactionValues.kind,
           amount: transactionValues.amount,
           categoryId: transactionValues.categoryId,
@@ -265,6 +267,10 @@ export default function App() {
             onAdd={date => { setSelectedTransactionId(null); setTransactionInitialDate(date ?? null); setModal("transaction"); }}
             onEdit={id => {
               const transaction = data.transactions.find(item => item.id === id);
+              if (transaction && isLegacyTransfer(transaction.kind)) {
+                window.alert("Giao dịch chuyển tiền cũ không thể chỉnh sửa để bảo toàn số dư tổng tài sản.");
+                return;
+              }
               if (transaction?.debtPaymentId || transaction?.installmentId) {
                 window.alert("Giao dịch này liên kết với công nợ hoặc trả góp. Hãy điều chỉnh từ luồng thanh toán tương ứng để số liệu luôn khớp.");
                 return;
@@ -274,6 +280,11 @@ export default function App() {
               setModal("transaction");
             }}
             onDelete={async id => {
+              const transaction = data.transactions.find(item => item.id === id);
+              if (transaction && isLegacyTransfer(transaction.kind)) {
+                window.alert("Giao dịch chuyển tiền cũ không thể xóa để bảo toàn số dư tổng tài sản.");
+                return;
+              }
               await db.transaction("rw", db.transactions, db.debtPayments, db.debts, db.installments, db.recurringOccurrences, async () => {
                 const tx = await db.transactions.get(id);
                 if (!tx) return;

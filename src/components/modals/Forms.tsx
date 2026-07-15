@@ -266,17 +266,22 @@ export function InstallmentForm({ installment, scheduleLocked = false, categorie
       </label>
       <p className="form-note">Mỗi tháng bạn sẽ trả: {totalAmount && totalMonths ? formatVnd(Number(totalAmount) / Number(totalMonths)) : "0 đ"}{scheduleLocked ? " · Lịch gốc đã khóa vì đã có kỳ thanh toán." : ""}</p>
       
-      <button className="primary full" disabled={!name || !totalAmount || !totalMonths || !categoryId} onClick={() => void onSubmit({ 
-        name, 
-        totalAmount: Number(totalAmount), 
-        monthlyAmount: Math.round(Number(totalAmount) / Number(totalMonths)), 
-        totalMonths: Number(totalMonths), 
-        startDate, 
-        dueDate: Number(dueDate), 
-        priority,
-        categoryId, 
-        walletId: installment?.walletId ?? primaryWalletId
-      })}>
+      <button className="primary full" disabled={!name || !totalAmount || !totalMonths || !categoryId || !dueDate} onClick={() => {
+        let validDueDate = Number(dueDate);
+        if (isNaN(validDueDate) || validDueDate < 1) validDueDate = 1;
+        if (validDueDate > 31) validDueDate = 31;
+        void onSubmit({ 
+          name, 
+          totalAmount: Number(totalAmount), 
+          monthlyAmount: Math.round(Number(totalAmount) / Number(totalMonths)), 
+          totalMonths: Number(totalMonths), 
+          startDate, 
+          dueDate: validDueDate, 
+          priority,
+          categoryId, 
+          walletId: installment?.walletId ?? primaryWalletId
+        });
+      }}>
         {installment ? "Lưu thay đổi" : "Tạo khoản trả góp"}
       </button>
     </Modal>

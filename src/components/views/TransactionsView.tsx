@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, List, Plus, ReceiptText, Search, X } from "lucide-react";
 import type { Category, Transaction } from "../../domain";
 import { formatVnd } from "../../domain";
@@ -25,6 +25,7 @@ export function TransactionsView({
   onEdit: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
 }) {
+
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"list" | "calendar">("list");
   const [kind, setKind] = useState<TransactionKindFilter>("all");

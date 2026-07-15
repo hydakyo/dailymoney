@@ -6,6 +6,8 @@ export interface Env {
   VAPID_PUBLIC_KEY: string;
   VAPID_PRIVATE_KEY: string;
   VAPID_SUBJECT: string;
+  MAX_SUBSCRIPTIONS?: string;
+  ALLOWED_ORIGINS?: string;
 }
 
 type StoredSubscription = {
@@ -20,7 +22,7 @@ type ReminderRow = {
   reminder_time: string;
 };
 
-const MAX_TOTAL_SUBSCRIPTIONS = 1_000;
+const getMaxSubscriptions = (env: Env) => Number(env.MAX_SUBSCRIPTIONS) || 1000;
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 const invalid = (message: string) => json({ error: message }, 400);
@@ -52,7 +54,10 @@ async function sendReminder(env: Env, row: ReminderRow, date: string) {
   }
 }
 
-const ALLOWED_ORIGINS = ["https://dm.kelvin.io.vn", "http://localhost:5173", "http://localhost:4173"];
+const getAllowedOrigins = (env: Env) => {
+  if (env.ALLOWED_ORIGINS) return env.ALLOWED_ORIGINS.split(",");
+  return ["https://dm.kelvin.io.vn", "http://localhost:5173", "http://localhost:4173"];
+};
 
 // Validate subscription more strictly
 function validSubscriptionStrict(value: unknown): value is StoredSubscription {
@@ -68,7 +73,7 @@ function validSubscriptionStrict(value: unknown): value is StoredSubscription {
 
 async function handleApi(request: Request, env: Env, path: string) {
   const origin = request.headers.get("Origin");
-  if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+  if (!origin || !getAllowedOrigins(env).includes(origin)) {
     return json({ error: "Origin không được phép." }, 403);
   }
 
@@ -106,7 +111,7 @@ async function handleApi(request: Request, env: Env, path: string) {
       const body = await readJson<{ subscription?: unknown; time?: unknown }>();
       if (!body || !validSubscriptionStrict(body.subscription) || !validTime(body.time)) return invalid("Subscription hoặc giờ nhắc không hợp lệ.");
       const result = await env.REMINDERS.prepare("INSERT INTO subscriptions (endpoint, subscription_json, reminder_time, updated_at) SELECT ?, ?, ?, datetime('now') WHERE EXISTS (SELECT 1 FROM subscriptions WHERE endpoint = ?) OR (SELECT COUNT(*) FROM subscriptions) < ? ON CONFLICT(endpoint) DO UPDATE SET subscription_json = excluded.subscription_json, reminder_time = excluded.reminder_time, updated_at = excluded.updated_at")
-        .bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time, body.subscription.endpoint, MAX_TOTAL_SUBSCRIPTIONS)
+        .bind(body.subscription.endpoint, JSON.stringify(body.subscription), body.time, body.subscription.endpoint, getMaxSubscriptions(env))
         .run();
       if (!result.meta.changes) return json({ error: "Dịch vụ reminder đang đạt giới hạn vận hành. Vui lòng thử lại sau." }, 503);
       return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": origin } });

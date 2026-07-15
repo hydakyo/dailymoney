@@ -20,6 +20,12 @@ function dateFromSms(text: string) {
   return candidate.toISOString().slice(0, 10);
 }
 
+export const NLP_CATEGORY_RULES = [
+  { keywords: ["grab", "be ", "gojek", "xanh sm"], categoryLike: "Di chuyển" },
+  { keywords: ["shopee", "lazada", "tiki", "tiktok shop"], categoryLike: "Mua sắm" },
+  { keywords: ["dien", "nuoc", "internet", "wifi"], categoryLike: "Nhà ở" }
+];
+
 export function parseBankSms(text: string, categories: Category[]): Partial<Pick<Transaction, "kind" | "amount" | "categoryId" | "date" | "note">> {
   // Common SMS formats in Vietnam:
   // VCB: SD TK 0123... -50,000VND luc 14:00 14/07/2026. ND: thanh toan tien dien.
@@ -76,14 +82,13 @@ export function parseBankSms(text: string, categories: Category[]): Partial<Pick
         break;
       }
     }
-    // Simple fallbacks
+    // Simple fallbacks using the rules engine
     if (!categoryId) {
-      if (normalizedNote.includes("grab") || normalizedNote.includes("be ") || normalizedNote.includes("gojek")) {
-        categoryId = expenseCategories.find(c => c.name.includes("Di chuyển"))?.id || "";
-      } else if (normalizedNote.includes("shopee") || normalizedNote.includes("lazada") || normalizedNote.includes("tiki")) {
-        categoryId = expenseCategories.find(c => c.name.includes("Mua sắm"))?.id || "";
-      } else if (normalizedNote.includes("dien") || normalizedNote.includes("nuoc") || normalizedNote.includes("internet")) {
-        categoryId = expenseCategories.find(c => c.name.includes("Nhà ở"))?.id || "";
+      for (const rule of NLP_CATEGORY_RULES) {
+        if (rule.keywords.some(kw => normalizedNote.includes(kw))) {
+          categoryId = expenseCategories.find(c => c.name.includes(rule.categoryLike))?.id || "";
+          if (categoryId) break;
+        }
       }
     }
   }

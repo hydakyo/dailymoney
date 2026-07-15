@@ -52,7 +52,7 @@ function noteFromSpeech(text: string) {
 }
 
 // Map synonyms directly to logical concepts instead of hardcoded UI names
-const categorySynonyms: Record<string, string[]> = {
+export const categorySynonyms: Record<string, string[]> = {
   "Ăn uống": ["ca phe", "cafe", "an sang", "an trua", "an toi", "com", "pho", "bun", "do an", "nuoc", "tra sua", "an", "nhau", "banh"],
   "Di chuyển": ["xang", "grab", "taxi", "gui xe", "xe buyt", "be", "gojek", "xe", "ve xe"],
   "Nhà ở": ["tien nha", "thue nha", "dien", "nuoc", "internet", "wifi", "rac"],

@@ -475,6 +475,8 @@ function daysInMonth(year: number, monthIndex: number) {
 
 export function advanceDueDate(rule: RecurringRule, from: string) {
   const date = parseLocalDate(from);
+  const baseDay = rule.dayOfMonth ?? parseLocalDate(rule.startDate).getUTCDate();
+  
   if (rule.frequency === "daily") {
     date.setUTCDate(date.getUTCDate() + rule.interval);
     return formatLocalDate(date);
@@ -486,13 +488,13 @@ export function advanceDueDate(rule: RecurringRule, from: string) {
   if (rule.frequency === "yearly") {
     const targetYear = date.getUTCFullYear() + rule.interval;
     const targetMonth = date.getUTCMonth();
-    date.setUTCFullYear(targetYear, targetMonth, Math.min(rule.dayOfMonth ?? date.getUTCDate(), daysInMonth(targetYear, targetMonth)));
+    date.setUTCFullYear(targetYear, targetMonth, Math.min(baseDay, daysInMonth(targetYear, targetMonth)));
     return formatLocalDate(date);
   }
   const targetMonthIndex = date.getUTCMonth() + rule.interval;
   const targetYear = date.getUTCFullYear() + Math.floor(targetMonthIndex / 12);
   const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
-  date.setUTCFullYear(targetYear, targetMonth, Math.min(rule.dayOfMonth ?? date.getUTCDate(), daysInMonth(targetYear, targetMonth)));
+  date.setUTCFullYear(targetYear, targetMonth, Math.min(baseDay, daysInMonth(targetYear, targetMonth)));
   return formatLocalDate(date);
 }
 

@@ -150,7 +150,7 @@ export function generateAdvice(data: AppData, currentMonth: string): Advice[] {
   
   for (const b of budgets) {
     const ratio = b.spent / b.limit;
-    if (ratio > 1) {
+    if (ratio >= 1) {
       overBudgetCount++;
     } else if (ratio >= 0.8) {
       nearBudgetCount++;
