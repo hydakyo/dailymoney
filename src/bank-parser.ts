@@ -1,5 +1,6 @@
 import type { Category, Transaction } from "./domain";
-import { inferCategory, normalizeCategoryText } from "./category-classifier";
+import type { CategoryLearning } from "./domain";
+import { inferCategory, inferTransactionKind, normalizeCategoryText, type CategoryCandidate } from "./category-classifier";
 
 const normalizeVietnamese = normalizeCategoryText;
 
@@ -20,15 +21,16 @@ function dateFromSms(text: string) {
 export type BankSmsParseResult = Pick<Transaction, "kind" | "amount" | "categoryId" | "date" | "note"> & {
   categoryMatched: boolean;
   categoryConfidence: "high" | "low" | "none";
+  categoryCandidates: CategoryCandidate[];
 };
 
-export function parseBankSms(text: string, categories: Category[]): BankSmsParseResult {
+export function parseBankSms(text: string, categories: Category[], learnings: CategoryLearning[] = []): BankSmsParseResult {
   // Common SMS formats in Vietnam:
   // VCB: SD TK 0123... -50,000VND luc 14:00 14/07/2026. ND: thanh toan tien dien.
   // TCB: TK 1903... GD: +1,000,000VND 14/07. ND: NGUYEN VAN A chuyen tien.
   // Momo: Ban vua thanh toan 35.000d cho Cua hang A. Ngay 14/07.
   
-  let kind: Transaction["kind"] = "expense";
+  let kind: Transaction["kind"] = inferTransactionKind(text, learnings);
   let amount = 0;
   let note = "";
   const date = dateFromSms(text);
@@ -67,7 +69,7 @@ export function parseBankSms(text: string, categories: Category[]): BankSmsParse
     note = text.substring(0, 50) + (text.length > 50 ? "..." : ""); // fallback
   }
 
-  const category = inferCategory(note || text, kind, categories);
+  const category = inferCategory(note || text, kind, categories, learnings);
 
-  return { kind, amount, note, date, categoryId: category.categoryId, categoryMatched: category.matched, categoryConfidence: category.confidence };
+  return { kind, amount, note, date, categoryId: category.categoryId, categoryMatched: category.matched, categoryConfidence: category.confidence, categoryCandidates: category.candidates };
 }

@@ -22,6 +22,7 @@ import { isLegacyTransfer, normalizeEditableTransaction, requireMatchingActiveCa
 import { deleteDebtWithRelatedRecords, updateDebtFromDatabase } from "./debt-actions";
 import { updateGoalFromDatabase } from "./goal-actions";
 import { updateInstallmentFromDatabase } from "./installment-actions";
+import { learnCategoryFromText } from "./category-learning";
 import { DataRecoveryView } from "./components/views/DataRecoveryView";
 import { StorageRecoveryView } from "./components/views/StorageRecoveryView";
 
@@ -628,7 +629,10 @@ export default function App() {
           transaction={data.transactions.find(item => item.id === selectedTransactionId)}
           initialDate={transactionInitialDate ?? undefined}
           categories={data.categories}
+          learnings={data.categoryLearnings ?? []}
+          transactions={data.transactions}
           onSubmit={addTransaction} 
+          onLearn={async value => { await learnCategoryFromText(db, value); await refresh(); }}
           onClose={() => { setSelectedTransactionId(null); setTransactionInitialDate(null); setModal(null); }}
         />
       )}

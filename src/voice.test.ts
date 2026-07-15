@@ -28,6 +28,11 @@ describe("voice transaction parser", () => {
     expect(parseVoiceTransaction("Nhận 500 nghìn", categories)).toMatchObject({ kind: "income" });
   });
 
+  it("understands refund and debt-payment wording", () => {
+    expect(parseVoiceTransaction("Được hoàn 200 nghìn tiền Grab", categories)).toMatchObject({ kind: "income", amount: 200_000 });
+    expect(parseVoiceTransaction("Trả nợ anh An 500 nghìn", categories)).toMatchObject({ kind: "expense", amount: 500_000 });
+  });
+
   it("does not mistake a spoken day for a formatted VND amount", () => {
     expect(parseVoiceTransaction("Ngày 13 tháng 7 ăn tối 64.000", categories)).toMatchObject({ amount: 64_000, categoryId: "food", date: "2026-07-13", note: "ăn tối" });
   });

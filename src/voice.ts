@@ -1,5 +1,6 @@
 import type { Category, Transaction } from "./domain";
-import { inferCategory, inferTransactionKind } from "./category-classifier";
+import type { CategoryLearning } from "./domain";
+import { inferCategory, inferTransactionKind, type CategoryCandidate } from "./category-classifier";
 
 const normalized = (value: string) => value.toLocaleLowerCase("vi-VN").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
 
@@ -55,11 +56,12 @@ function noteFromSpeech(text: string) {
 export type VoiceParseResult = Pick<Transaction, "kind" | "amount" | "categoryId" | "date" | "note"> & {
   categoryMatched: boolean;
   categoryConfidence: "high" | "low" | "none";
+  categoryCandidates: CategoryCandidate[];
 };
 
-export function parseVoiceTransaction(text: string, categories: Category[]): VoiceParseResult {
-  const kind = inferTransactionKind(text);
-  const category = inferCategory(text, kind, categories);
+export function parseVoiceTransaction(text: string, categories: Category[], learnings: CategoryLearning[] = []): VoiceParseResult {
+  const kind = inferTransactionKind(text, learnings);
+  const category = inferCategory(text, kind, categories, learnings);
 
   return { 
     kind, 
@@ -68,6 +70,7 @@ export function parseVoiceTransaction(text: string, categories: Category[]): Voi
     date: dateFromSpeech(text), 
     note: noteFromSpeech(text) || text.trim(),
     categoryMatched: category.matched,
-    categoryConfidence: category.confidence
+    categoryConfidence: category.confidence,
+    categoryCandidates: category.candidates
   };
 }

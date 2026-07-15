@@ -45,6 +45,23 @@ async function disposeFixture(name: string, upgraded: DailyMoneyDatabase) {
 }
 
 describe("installment database migrations", () => {
+  it("adds the local learning store when upgrading an existing version 12 database", async () => {
+    const name = `daily-money-learning-migration-${crypto.randomUUID()}`;
+    const legacy = new Dexie(name);
+    legacy.version(12).stores({ settings: "id", categories: "id, kind, archived" });
+    await legacy.open();
+    legacy.close();
+
+    const upgraded = new DailyMoneyDatabase(name);
+    await upgraded.open();
+    try {
+      await upgraded.categoryLearnings.add({ id: "one", kind: "expense", phrase: "highlands", categoryId: "food", source: "voice", uses: 1, createdAt: "", updatedAt: "" });
+      await expect(upgraded.categoryLearnings.add({ id: "two", kind: "expense", phrase: "highlands", categoryId: "shopping", source: "voice", uses: 1, createdAt: "", updatedAt: "" })).rejects.toThrow();
+    } finally {
+      await disposeFixture(name, upgraded);
+    }
+  });
+
   it("deduplicates legacy budgets before enforcing one budget per month and category", async () => {
     const name = `daily-money-budget-migration-${crypto.randomUUID()}`;
     const legacy = new Dexie(name);

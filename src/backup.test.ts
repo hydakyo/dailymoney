@@ -109,6 +109,13 @@ describe("E2E Restore", () => {
     expect(prepared.transactions[0].debtPaymentId).toBe("payment");
   });
 
+  it("validates category learning references in restored backups", () => {
+    expect(() => prepareRestorePayload({
+      ...payloadV3, wallets: [wallet], categories: [shopping],
+      categoryLearnings: [{ id: "learning", kind: "income", phrase: "highlands", categoryId: "shopping", source: "voice", uses: 1, createdAt: "", updatedAt: "" }]
+    })).toThrow("quy tắc học không khớp loại danh mục");
+  });
+
   it("rejects semantic restore inconsistencies and normalizes legacy deleted recurring links", () => {
     expect(() => prepareRestorePayload({
       ...payloadV3, wallets: [wallet], categories: [shopping],

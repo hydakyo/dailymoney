@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { db, initializeDatabase } from "./db";
-import type { AppSettings, Budget, Category, Debt, DebtPayment, GoalEntry, Installment, RecurringOccurrence, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
+import type { AppSettings, Budget, Category, CategoryLearning, Debt, DebtPayment, GoalEntry, Installment, RecurringOccurrence, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 import { today } from "./domain";
 import { dueOccurrences } from "./finance";
 
@@ -8,6 +8,7 @@ export interface AppData {
   settings: AppSettings;
   wallets: Wallet[];
   categories: Category[];
+  categoryLearnings?: CategoryLearning[];
   transactions: Transaction[];
   budgets: Budget[];
   rules: RecurringRule[];
@@ -35,6 +36,7 @@ export const emptyData = (): AppData => ({
   },
   wallets: [],
   categories: [],
+  categoryLearnings: [],
   transactions: [],
   budgets: [],
   rules: [],
@@ -64,9 +66,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   refresh: async () => {
     try {
     const settings = await initializeDatabase();
-    const [wallets, categories, transactions, budgets, rules, occurrences, debts, payments, goals, goalEntries, installments] = await Promise.all([
+    const [wallets, categories, categoryLearnings, transactions, budgets, rules, occurrences, debts, payments, goals, goalEntries, installments] = await Promise.all([
       db.wallets.toArray(),
       db.categories.toArray(),
+      db.categoryLearnings.toArray(),
       db.transactions.reverse().toArray(),
       db.budgets.toArray(),
       db.recurringRules.toArray(),
@@ -106,7 +109,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const nextDueDates = new Map(dueByRule.map(({ rule, result }) => [rule.id, result.nextDueDate]));
     const finalRules = rules.map(rule => nextDueDates.has(rule.id) ? { ...rule, nextDueDate: nextDueDates.get(rule.id)! } : rule);
     
-    const newData = { settings, wallets, categories, transactions, budgets, rules: finalRules, occurrences: finalOccurrences, debts, payments, goals, goalEntries, installments };
+    const newData = { settings, wallets, categories, categoryLearnings, transactions, budgets, rules: finalRules, occurrences: finalOccurrences, debts, payments, goals, goalEntries, installments };
     
     set((state) => ({
       data: newData,

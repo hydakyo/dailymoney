@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
-import type { AppSettings, BackupPayloadV1, BackupPayloadV2, BackupPayloadV3, Budget, Category, Debt, DebtPayment, GoalEntry, Installment, RecurringOccurrence, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
+import type { AppSettings, BackupPayloadV1, BackupPayloadV2, BackupPayloadV3, Budget, Category, CategoryLearning, Debt, DebtPayment, GoalEntry, Installment, RecurringOccurrence, RecurringRule, SavingsGoal, Transaction, Wallet } from "./domain";
 import { defaultCategories } from "./seed";
 import { newId } from "./domain";
 import { normalizeInstallmentPayments, paidInstallmentPeriods } from "./finance";
@@ -8,6 +8,7 @@ export class DailyMoneyDatabase extends Dexie {
   settings!: EntityTable<AppSettings, "id">;
   wallets!: EntityTable<Wallet, "id">;
   categories!: EntityTable<Category, "id">;
+  categoryLearnings!: EntityTable<CategoryLearning, "id">;
   transactions!: EntityTable<Transaction, "id">;
   budgets!: EntityTable<Budget, "id">;
   recurringRules!: EntityTable<RecurringRule, "id">;
@@ -200,6 +201,16 @@ export class DailyMoneyDatabase extends Dexie {
       debtPayments: "id, debtId, date, transactionId", goals: "id, closedAt", goalEntries: "id, goalId, date",
       installments: "id, closedAt, dueDate"
     });
+
+    this.version(13).stores({
+      settings: "id", wallets: "id, archived", categories: "id, kind, archived",
+      categoryLearnings: "id, &[kind+phrase], categoryId, updatedAt",
+      transactions: "id, date, kind, categoryId, walletId, toWalletId, recurringRuleId, debtPaymentId, installmentId, installmentPeriod, [installmentId+installmentPeriod]",
+      budgets: "id, &[month+categoryId], month, categoryId", recurringRules: "id, active, nextDueDate",
+      recurringOccurrences: "id, [ruleId+dueDate], status, dueDate", debts: "id, kind, dueDate, closedAt",
+      debtPayments: "id, debtId, date, transactionId", goals: "id, closedAt", goalEntries: "id, goalId, date",
+      installments: "id, closedAt, dueDate"
+    });
   }
 }
 
@@ -222,7 +233,7 @@ function installmentLinkChanged(before: Transaction, after: Transaction) {
 }
 
 export async function initializeDatabase() {
-  return db.transaction("rw", [db.settings, db.categories, db.wallets, db.transactions, db.budgets, db.recurringRules, db.installments], async () => {
+  return db.transaction("rw", [db.settings, db.categories, db.categoryLearnings, db.wallets, db.transactions, db.budgets, db.recurringRules, db.installments], async () => {
     const existing = await db.settings.get("settings");
     if (!existing) {
       const now = new Date().toISOString();
@@ -286,6 +297,10 @@ export async function initializeDatabase() {
         const replacement = remapCategoryIds.get(installment.categoryId);
         if (replacement) installment.categoryId = replacement;
       });
+      await db.categoryLearnings.toCollection().modify(learning => {
+        const replacement = remapCategoryIds.get(learning.categoryId);
+        if (replacement) learning.categoryId = replacement;
+      });
       await db.categories.bulkDelete(duplicates.map(category => category.id));
     }
     const transactions = await db.transactions.toArray();
@@ -302,11 +317,11 @@ export async function initializeDatabase() {
 export async function exportBackup(): Promise<BackupPayloadV3> {
   const settings = await db.settings.get("settings");
   if (!settings) throw new Error("Chưa thể đọc cài đặt ứng dụng.");
-  const [wallets, categories, transactions, budgets, recurringRules, recurringOccurrences, debts, debtPayments, goals, goalEntries, installments] = await Promise.all([
-    db.wallets.toArray(), db.categories.toArray(), db.transactions.toArray(), db.budgets.toArray(), db.recurringRules.toArray(), db.recurringOccurrences.toArray(),
+  const [wallets, categories, categoryLearnings, transactions, budgets, recurringRules, recurringOccurrences, debts, debtPayments, goals, goalEntries, installments] = await Promise.all([
+    db.wallets.toArray(), db.categories.toArray(), db.categoryLearnings.toArray(), db.transactions.toArray(), db.budgets.toArray(), db.recurringRules.toArray(), db.recurringOccurrences.toArray(),
     db.debts.toArray(), db.debtPayments.toArray(), db.goals.toArray(), db.goalEntries.toArray(), db.installments.toArray()
   ]);
-  return { schemaVersion: 3, exportedAt: new Date().toISOString(), settings, wallets, categories, transactions, budgets, recurringRules, recurringOccurrences, debts, debtPayments, goals, goalEntries, installments };
+  return { schemaVersion: 3, exportedAt: new Date().toISOString(), settings, wallets, categories, categoryLearnings, transactions, budgets, recurringRules, recurringOccurrences, debts, debtPayments, goals, goalEntries, installments };
 }
 
 function assertUnique(records: Array<{ id: string }>, label: string) {
@@ -333,6 +348,7 @@ function normalizeRestoredSettings(settings: AppSettings): AppSettings {
 export function prepareRestorePayload(payload: BackupPayloadV1 | BackupPayloadV2 | BackupPayloadV3) {
   const wallets: Wallet[] = payload.schemaVersion >= 2 ? payload.wallets ?? [] : [];
   const categories: Category[] = payload.categories;
+  const categoryLearnings: CategoryLearning[] = payload.categoryLearnings ?? [];
   let transactions: Transaction[] = payload.transactions;
   const budgets: Budget[] = payload.budgets ?? [];
   const rules: RecurringRule[] = payload.recurringRules ?? [];
@@ -344,7 +360,7 @@ export function prepareRestorePayload(payload: BackupPayloadV1 | BackupPayloadV2
   const installments: Installment[] = payload.schemaVersion >= 3 ? payload.installments ?? [] : [];
   if (payload.schemaVersion >= 2 && !wallets.length) throw new Error("Backup không có ví hợp lệ.");
   for (const [records, label] of [
-    [wallets, "ví"], [categories, "danh mục"], [transactions, "giao dịch"], [budgets, "ngân sách"],
+    [wallets, "ví"], [categories, "danh mục"], [categoryLearnings, "quy tắc học"], [transactions, "giao dịch"], [budgets, "ngân sách"],
     [rules, "giao dịch lặp"], [occurrences, "kỳ lặp"], [debts, "công nợ"], [payments, "thanh toán công nợ"],
     [goals, "mục tiêu"], [entries, "đóng góp mục tiêu"], [installments, "trả góp"]
   ] as const) assertUnique(records as Array<{ id: string }>, label);
@@ -365,6 +381,16 @@ export function prepareRestorePayload(payload: BackupPayloadV1 | BackupPayloadV2
   const goalIds = new Set(goals.map(item => item.id));
   const installmentIds = new Set(installments.map(item => item.id));
   const requireReference = (condition: boolean, message: string) => { if (!condition) throw new Error(`Backup không hợp lệ: ${message}.`); };
+  for (const learning of categoryLearnings) {
+    requireReference(categoryIds.has(learning.categoryId), "quy tắc học trỏ tới danh mục không tồn tại");
+    requireReference(categoriesById.get(learning.categoryId)?.kind === learning.kind, "quy tắc học không khớp loại danh mục");
+  }
+  const learningKeys = new Set<string>();
+  for (const learning of categoryLearnings) {
+    const key = `${learning.kind}:${learning.phrase}`;
+    requireReference(!learningKeys.has(key), "quy tắc học bị trùng loại và cụm từ");
+    learningKeys.add(key);
+  }
   for (const transaction of transactions) {
     if (payload.schemaVersion >= 2) requireReference(walletIds.has(transaction.walletId), "giao dịch trỏ tới ví không tồn tại");
     requireReference(categoryIds.has(transaction.categoryId), "giao dịch trỏ tới danh mục không tồn tại");
@@ -447,7 +473,7 @@ export function prepareRestorePayload(payload: BackupPayloadV1 | BackupPayloadV2
     requireReference(categoriesById.get(installment.categoryId)?.kind === "expense", "trả góp phải dùng danh mục chi");
     requireReference(walletIds.has(installment.walletId), "trả góp trỏ tới ví không tồn tại");
   }
-  return { ...payload, transactions, settings: normalizeRestoredSettings(payload.settings) };
+  return { ...payload, transactions, categoryLearnings, settings: normalizeRestoredSettings(payload.settings) };
 }
 
 export async function restoreBackup(payload: BackupPayloadV1 | BackupPayloadV2 | BackupPayloadV3) {
@@ -456,6 +482,7 @@ export async function restoreBackup(payload: BackupPayloadV1 | BackupPayloadV2 |
     await Promise.all(db.tables.map(table => table.clear()));
     await db.settings.put(prepared.settings);
     await db.categories.bulkAdd(prepared.categories);
+    await db.categoryLearnings.bulkAdd(prepared.categoryLearnings ?? []);
     const restoredTransactions = prepared.transactions.map(transaction => ({ ...transaction }));
     await db.transactions.bulkAdd(restoredTransactions);
     await db.budgets.bulkAdd(prepared.budgets ?? []);

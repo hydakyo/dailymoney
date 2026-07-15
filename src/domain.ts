@@ -8,6 +8,7 @@ export type ObligationPriority = "essential" | "high" | "normal" | "flexible";
 export type FinancialClass = "essential" | "discretionary";
 export type CollectionConfidence = "certain" | "likely" | "uncertain";
 export type ThemePreference = "system" | "light" | "dark";
+export type CategoryLearningSource = "voice" | "sms" | "manual";
 
 export interface AppSettings {
   id: "settings";
@@ -47,6 +48,18 @@ export interface Category {
   builtIn: boolean;
   financialClass?: FinancialClass;
   createdAt: string;
+}
+
+/** A local correction used to personalize transaction classification. */
+export interface CategoryLearning {
+  id: string;
+  kind: EditableTransactionKind;
+  phrase: string;
+  categoryId: string;
+  source: CategoryLearningSource;
+  uses: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Transaction {
@@ -186,6 +199,7 @@ export interface BackupPayloadV1 {
   goalEntries?: GoalEntry[];
   wallets?: Wallet[];
   installments?: Installment[];
+  categoryLearnings?: CategoryLearning[];
 }
 
 export interface BackupPayloadV2 {
@@ -203,6 +217,7 @@ export interface BackupPayloadV2 {
   goalEntries: GoalEntry[];
   wallets: Wallet[];
   installments?: Installment[];
+  categoryLearnings?: CategoryLearning[];
 }
 
 export interface BackupPayloadV3 {
@@ -220,6 +235,7 @@ export interface BackupPayloadV3 {
   goalEntries: GoalEntry[];
   wallets: Wallet[];
   installments: Installment[];
+  categoryLearnings?: CategoryLearning[];
 }
 
 const DateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
@@ -281,6 +297,17 @@ export const CategorySchema = z.object({
   builtIn: z.boolean(),
   financialClass: z.enum(["essential", "discretionary"]).optional(),
   createdAt: z.string(),
+});
+
+export const CategoryLearningSchema = z.object({
+  id: z.string().min(1).max(100),
+  kind: z.enum(["income", "expense"]),
+  phrase: z.string().trim().min(2).max(200),
+  categoryId: z.string().min(1).max(100),
+  source: z.enum(["voice", "sms", "manual"]),
+  uses: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  createdAt: z.string(),
+  updatedAt: z.string(),
 });
 
 export const TransactionSchema = z.object({
@@ -419,6 +446,7 @@ export const BackupPayloadV1Schema = z.object({
   goalEntries: z.array(GoalEntrySchema).optional(),
   wallets: z.array(WalletSchema).optional(),
   installments: z.array(InstallmentSchema).optional(),
+  categoryLearnings: z.array(CategoryLearningSchema).optional(),
 });
 
 export const BackupPayloadV2Schema = z.object({
@@ -436,6 +464,7 @@ export const BackupPayloadV2Schema = z.object({
   goalEntries: z.array(GoalEntrySchema),
   wallets: z.array(WalletSchema),
   installments: z.array(InstallmentSchema).optional(),
+  categoryLearnings: z.array(CategoryLearningSchema).optional(),
 });
 
 export const BackupPayloadV3Schema = z.object({
@@ -453,6 +482,7 @@ export const BackupPayloadV3Schema = z.object({
   goalEntries: z.array(GoalEntrySchema),
   wallets: z.array(WalletSchema),
   installments: z.array(InstallmentSchema),
+  categoryLearnings: z.array(CategoryLearningSchema).optional(),
 });
 
 export const BackupSchema = z.discriminatedUnion("schemaVersion", [

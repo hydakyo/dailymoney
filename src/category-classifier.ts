@@ -1,9 +1,11 @@
-import type { Category, Transaction } from "./domain";
+import type { Category, CategoryLearning, Transaction } from "./domain";
 
+export type CategoryCandidate = { categoryId: string; confidence: "high" | "low"; learned: boolean };
 export type CategoryMatch = {
   categoryId: string;
   matched: boolean;
   confidence: "high" | "low" | "none";
+  candidates: CategoryCandidate[];
 };
 
 export const normalizeCategoryText = (value: string) => value
@@ -33,6 +35,21 @@ const categoryConcepts: Record<string, string[]> = {
   "Khác": []
 };
 
+const learningStopWords = new Set([
+  "hom", "nay", "qua", "toi", "minh", "da", "vua", "dung", "chi", "tien", "khoan", "giao", "dich",
+  "ngay", "thang", "nam", "nghin", "ngan", "trieu", "vnd", "dong", "mua", "an", "uong", "tra", "nhan",
+  "duoc", "hoan", "tk", "sd", "nd", "luc", "noi", "so", "du", "cho", "tai", "thanh", "toan", "ref"
+]);
+
+/** A compact, amount/date-free signature that can be matched next time. */
+export function learningPhrase(text: string) {
+  return normalizeCategoryText(text)
+    .split(" ")
+    .filter(token => token.length >= 2 && !/^\d+$/.test(token) && !learningStopWords.has(token))
+    .slice(0, 8)
+    .join(" ");
+}
+
 function includesPhrase(text: string, phrase: string) {
   return ` ${text} `.includes(` ${phrase} `);
 }
@@ -52,10 +69,10 @@ function categoryNameScore(text: string, name: string) {
  * Selects only among every active category of the requested kind. Unknown
  * language goes to that kind's explicit “Khác” category, never array index 0.
  */
-export function inferCategory(text: string, kind: Transaction["kind"], categories: Category[]): CategoryMatch {
+export function inferCategory(text: string, kind: Transaction["kind"], categories: Category[], learnings: CategoryLearning[] = []): CategoryMatch {
   const available = categories.filter(category => category.kind === kind && !category.archived);
   const value = normalizeCategoryText(text);
-  let best: { categoryId: string; score: number } | undefined;
+  const scores = new Map<string, { score: number; learned: boolean }>();
 
   for (const category of available) {
     const categoryName = normalizeCategoryText(category.name);
@@ -64,19 +81,39 @@ export function inferCategory(text: string, kind: Transaction["kind"], categorie
     for (const phrase of canonicalConcept) {
       if (includesPhrase(value, phrase)) score = Math.max(score, 90 + phrase.length);
     }
-    if (!best || score > best.score) best = { categoryId: category.id, score };
+    scores.set(category.id, { score, learned: false });
   }
-
+  for (const learning of learnings) {
+    if (learning.kind !== kind || !available.some(category => category.id === learning.categoryId)) continue;
+    if (!includesPhrase(value, learning.phrase)) continue;
+    const current = scores.get(learning.categoryId) ?? { score: 0, learned: false };
+    scores.set(learning.categoryId, { score: Math.max(current.score, 500 + Math.min(learning.uses, 99)), learned: true });
+  }
+  const ranked = available
+    .map(category => ({ categoryId: category.id, ...(scores.get(category.id) ?? { score: 0, learned: false }) }))
+    .filter(candidate => candidate.score >= 20)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 3);
+  const candidates: CategoryCandidate[] = ranked.map(candidate => ({
+    categoryId: candidate.categoryId,
+    confidence: candidate.score >= 70 ? "high" : "low",
+    learned: candidate.learned
+  }));
+  const best = ranked[0];
   if (best && best.score >= 45) {
-    return { categoryId: best.categoryId, matched: true, confidence: best.score >= 70 ? "high" : "low" };
+    return { categoryId: best.categoryId, matched: true, confidence: best.score >= 70 ? "high" : "low", candidates };
   }
   const other = available.find(category => normalizeCategoryText(category.name) === "khac");
-  return { categoryId: other?.id ?? "", matched: false, confidence: "none" };
+  return { categoryId: other?.id ?? "", matched: false, confidence: "none", candidates };
 }
 
-export function inferTransactionKind(text: string): Extract<Transaction["kind"], "income" | "expense"> {
+export function inferTransactionKind(text: string, learnings: CategoryLearning[] = []): Extract<Transaction["kind"], "income" | "expense"> {
   const value = normalizeCategoryText(text);
-  const incomeSignals = ["nhan luong", "tien luong", "thu nhap", "duoc tra", "ban duoc", "ban hang", "hoan tien", "hoan tra", "thuong", "tien ve", "cong tien", "nhan tien"];
+  const learned = learnings
+    .filter(learning => includesPhrase(value, learning.phrase))
+    .sort((left, right) => right.uses - left.uses || right.updatedAt.localeCompare(left.updatedAt))[0];
+  if (learned) return learned.kind;
+  const incomeSignals = ["nhan luong", "tien luong", "thu nhap", "duoc tra", "duoc hoan", "ban duoc", "ban hang", "hoan tien", "hoan tra", "thuong", "tien ve", "cong tien", "nhan tien"];
   return incomeSignals.some(signal => includesPhrase(value, signal)) || /(^|\s)(nhan|thu)(\s|$)/.test(value)
     ? "income"
     : "expense";

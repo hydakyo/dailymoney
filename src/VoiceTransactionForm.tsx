@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Mic, Square, ClipboardPaste } from "lucide-react";
-import type { Category, EditableTransactionKind, RecurringRule, Transaction } from "./domain";
+import type { Category, CategoryLearning, CategoryLearningSource, EditableTransactionKind, RecurringRule, Transaction } from "./domain";
 import { today } from "./domain";
 import { parseVoiceTransaction } from "./voice";
 import { parseBankSms } from "./bank-parser";
 import { formatAmountInput, normalizeAmountInput } from "./amount";
 import { Modal } from "./components/ui/Modal";
+import type { CategoryCandidate } from "./category-classifier";
+import { suggestRecurringFrequency } from "./recurrence-suggestion";
 
 type TransactionInput = {
   id?: string;
@@ -27,13 +29,19 @@ export function VoiceTransactionForm({
   transaction,
   initialDate,
   categories,
+  learnings,
+  transactions,
   onSubmit,
+  onLearn,
   onClose
 }: {
   transaction?: Transaction;
   initialDate?: string;
   categories: Category[];
+  learnings: CategoryLearning[];
+  transactions: Transaction[];
   onSubmit: (value: TransactionInput) => Promise<void>;
+  onLearn: (value: { text: string; kind: EditableTransactionKind; categoryId: string; source: CategoryLearningSource }) => Promise<void>;
   onClose: () => void;
 }) {
   const [kind, setKind] = useState<EditableTransactionKind>(transaction?.kind === "income" ? "income" : "expense");
@@ -51,6 +59,10 @@ export function VoiceTransactionForm({
   const [showSmsInput, setShowSmsInput] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [categoryCandidates, setCategoryCandidates] = useState<CategoryCandidate[]>([]);
+  const [sourceText, setSourceText] = useState("");
+  const [source, setSource] = useState<CategoryLearningSource | null>(null);
+  const [suggestedFrequency, setSuggestedFrequency] = useState<RecurringRule["frequency"] | null>(null);
 
   const recognitionRef = useRef<SpeechRecognizer | null>(null);
   const transcriptRef = useRef("");
@@ -65,14 +77,18 @@ export function VoiceTransactionForm({
   useEffect(() => () => recognitionRef.current?.abort(), []);
 
   const applyTranscript = (text: string) => {
-    const parsed = parseVoiceTransaction(text, categories);
+    const parsed = parseVoiceTransaction(text, categories, learnings);
     setKind(parsed.kind === "income" ? "income" : "expense");
     setAmount(parsed.amount ? String(parsed.amount) : "");
     setCategoryId(parsed.categoryId);
     setDate(parsed.date);
     setNote(parsed.note ?? "");
+    setCategoryCandidates(parsed.categoryCandidates);
+    setSourceText(text);
+    setSource("voice");
+    setSuggestedFrequency(suggestRecurringFrequency(parsed, transactions));
     setVoiceStatus(parsed.categoryMatched
-      ? `Đã nhận diện ${parsed.kind === "income" ? "khoản thu" : "khoản chi"} và danh mục. “${text}”`
+      ? `Đã nhận diện ${parsed.kind === "income" ? "khoản thu" : "khoản chi"} và danh mục · độ tin cậy ${parsed.categoryConfidence === "high" ? "cao" : "vừa"}. “${text}”`
       : `Đã nghe: “${text}”. Chưa rõ danh mục, tạm chọn “Khác” để bạn kiểm tra.`);
   };
 
@@ -126,12 +142,16 @@ export function VoiceTransactionForm({
   };
 
   const handleSmsPaste = () => {
-    const parsed = parseBankSms(pastedSms, categories);
+    const parsed = parseBankSms(pastedSms, categories, learnings);
     if (parsed.kind) setKind(parsed.kind === "income" ? "income" : "expense");
     if (parsed.amount) setAmount(String(parsed.amount));
     if (parsed.categoryId) setCategoryId(parsed.categoryId);
     if (parsed.date) setDate(parsed.date);
     if (parsed.note) setNote(parsed.note);
+    setCategoryCandidates(parsed.categoryCandidates);
+    setSourceText(pastedSms);
+    setSource("sms");
+    setSuggestedFrequency(suggestRecurringFrequency(parsed, transactions));
     setVoiceStatus(parsed.categoryMatched
       ? "Đã nhận diện nội dung SMS và danh mục."
       : "Đã đọc SMS nhưng chưa rõ danh mục, tạm chọn “Khác” để bạn kiểm tra.");
@@ -150,6 +170,14 @@ export function VoiceTransactionForm({
     setSubmitError("");
     try {
       await onSubmit({ id: transaction?.id, kind, amount: numericAmount, categoryId, date, note: note || undefined, recurring: recurring ? { frequency, interval: 1, dayOfMonth: Number(date.slice(-2)) } : undefined });
+      if (source && sourceText) {
+        try {
+          await onLearn({ text: sourceText, kind, categoryId, source });
+        } catch {
+          // The financial transaction is already durable; a learning failure
+          // must never make the user retry and accidentally duplicate it.
+        }
+      }
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Không thể lưu giao dịch.");
     } finally {
@@ -205,6 +233,18 @@ export function VoiceTransactionForm({
           <span>Số tiền</span>
           <input inputMode="numeric" placeholder="0" value={formatAmountInput(amount)} onChange={event => setAmount(normalizeAmountInput(event.target.value))} />
         </label>
+        {categoryCandidates.length > 1 && (
+          <div className="suggestion-row" aria-label="Danh mục gợi ý">
+            <small>Gợi ý:</small>
+            {categoryCandidates.map(candidate => {
+              const category = relevant.find(item => item.id === candidate.categoryId);
+              if (!category) return null;
+              return <button key={candidate.categoryId} type="button" className={categoryId === category.id ? "selected" : "soft"} onClick={() => setCategoryId(category.id)}>
+                {category.name}{candidate.learned ? " · đã học" : ""}
+              </button>;
+            })}
+          </div>
+        )}
 
         <label className="field">
           <span>Danh mục</span>
@@ -225,6 +265,7 @@ export function VoiceTransactionForm({
 
         {!transaction && (
           <>
+            {suggestedFrequency && !recurring && <button type="button" className="soft full" onClick={() => { setRecurring(true); setFrequency(suggestedFrequency); }}>Gợi ý: đặt lặp lại {suggestedFrequency === "daily" ? "mỗi ngày" : suggestedFrequency === "weekly" ? "mỗi tuần" : "mỗi tháng"}</button>}
             <label className="checkbox">
               <input type="checkbox" checked={recurring} onChange={event => setRecurring(event.target.checked)} /> Lặp lại giao dịch này
             </label>
