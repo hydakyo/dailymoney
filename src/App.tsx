@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, ClipboardList, ReceiptText, Settings, Home, CirclePlus, WalletCards } from "lucide-react";
 import { decryptBackup, downloadFile, encryptBackup, transactionsCsv, type EncryptedBackup } from "./backup";
 import { db, exportBackup, restoreBackup } from "./db";
@@ -45,6 +45,8 @@ const RestoreForm = lazy(() => import("./components/modals/Forms").then(module =
 
 type Tab = "home" | "transactions" | "plans" | "reports" | "settings";
 type PlanSection = "budgets" | "debts" | "goals" | "installments" | "recurring";
+type FloatingAddPosition = { left: number; top: number };
+const FLOATING_ADD_POSITION_KEY = "daily-money-floating-add-position-v1";
 type TransactionInput = {
   id?: string;
   kind: EditableTransactionKind;
@@ -77,7 +79,11 @@ export default function App() {
   const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
   const [transactionInitialDate, setTransactionInitialDate] = useState<string | null>(null);
   const [updateNow, setUpdateNow] = useState<(() => void) | null>(null);
+  const [floatingAddPosition, setFloatingAddPosition] = useState<FloatingAddPosition | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const floatingAddDragRef = useRef<{ pointerId: number; offsetX: number; offsetY: number; startX: number; startY: number; moved: boolean } | null>(null);
+  const floatingAddPositionRef = useRef<FloatingAddPosition | null>(null);
+  const suppressFloatingAddClickRef = useRef(false);
 
   useEffect(() => {
     void refresh();
@@ -107,6 +113,48 @@ export default function App() {
     window.addEventListener("daily-money-update-available", onUpdateAvailable);
     return () => window.removeEventListener("daily-money-update-available", onUpdateAvailable);
   }, []);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(FLOATING_ADD_POSITION_KEY) ?? "null") as FloatingAddPosition | null;
+      if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+        floatingAddPositionRef.current = saved;
+        setFloatingAddPosition(saved);
+      }
+    } catch {
+      window.localStorage.removeItem(FLOATING_ADD_POSITION_KEY);
+    }
+  }, []);
+
+  const openQuickTransaction = () => {
+    setSelectedTransactionId(null);
+    setTransactionInitialDate(null);
+    setModal("transaction");
+  };
+
+  const moveFloatingAdd = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = floatingAddDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const size = 60;
+    const left = Math.min(Math.max(8, event.clientX - drag.offsetX), window.innerWidth - size - 8);
+    const top = Math.min(Math.max(8, event.clientY - drag.offsetY), window.innerHeight - size - 76);
+    if (Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4) drag.moved = true;
+    const next = { left, top };
+    floatingAddPositionRef.current = next;
+    setFloatingAddPosition(next);
+  };
+
+  const stopMovingFloatingAdd = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = floatingAddDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    floatingAddDragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (drag.moved && floatingAddPositionRef.current) {
+      suppressFloatingAddClickRef.current = true;
+      window.localStorage.setItem(FLOATING_ADD_POSITION_KEY, JSON.stringify(floatingAddPositionRef.current));
+      window.setTimeout(() => { suppressFloatingAddClickRef.current = false; }, 0);
+    }
+  };
 
   const totals = useMemo(() => monthTotals(data.transactions, month), [data.transactions, month]);
   const balance = useMemo(() => totalBalance(data.wallets, data.transactions), [data.wallets, data.transactions]);
@@ -275,7 +323,7 @@ export default function App() {
         {tab === "home" && (
           <HomeView
             balance={balance} totals={totals} month={month} pending={pending} rules={data.rules} categories={categoryMap}
-            budgets={budgetItems} forecast={forecast} advices={generateAdvice(data, month)} onAdd={() => { setSelectedTransactionId(null); setTransactionInitialDate(null); setModal("transaction"); }} onPending={confirmOccurrence} onMonth={setMonth}
+            budgets={budgetItems} forecast={forecast} advices={generateAdvice(data, month)} onAdd={openQuickTransaction} onPending={confirmOccurrence} onMonth={setMonth}
           />
         )}
         {tab === "transactions" && (
@@ -475,6 +523,23 @@ export default function App() {
         )}
       </div>
 
+
+      {!modal && <button
+        type="button"
+        className={`quick-add-fab ${floatingAddDragRef.current ? "is-dragging" : ""}`}
+        style={floatingAddPosition ? { left: floatingAddPosition.left, top: floatingAddPosition.top, transform: "none" } : undefined}
+        aria-label="Ghi giao dịch nhanh"
+        title="Ghi giao dịch nhanh — kéo để di chuyển"
+        onPointerDown={event => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          floatingAddDragRef.current = { pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top, startX: event.clientX, startY: event.clientY, moved: false };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={moveFloatingAdd}
+        onPointerUp={stopMovingFloatingAdd}
+        onPointerCancel={stopMovingFloatingAdd}
+        onClick={() => { if (!suppressFloatingAddClickRef.current) openQuickTransaction(); }}
+      ><CirclePlus size={30} strokeWidth={2.4} /></button>}
 
       <nav className="tabbar" aria-label="Điều hướng chính">
         {([

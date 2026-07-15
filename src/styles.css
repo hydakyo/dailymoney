@@ -457,6 +457,27 @@ button:focus-visible, a:focus-visible {
 }
 .fab:hover { transform: scale(1.05); }
 
+.quick-add-fab {
+  position: fixed;
+  left: 50%;
+  bottom: calc(74px + env(safe-area-inset-bottom));
+  width: 60px;
+  height: 60px;
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(109, 93, 252, 0.46), 0 0 0 5px var(--bg-app);
+  z-index: 4;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.quick-add-fab:hover { filter: brightness(1.04); }
+.quick-add-fab.is-dragging { transition: none; cursor: grabbing; }
+.quick-add-fab:active:not(:disabled) { transform: translateX(-50%) scale(0.96); }
+
 .tabbar {
   position: fixed;
   z-index: 2;
