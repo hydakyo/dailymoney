@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mic, Square, ClipboardPaste } from "lucide-react";
+import { Mic, Square, ClipboardPaste, Sparkles } from "lucide-react";
 import type { Category, CategoryLearning, CategoryLearningSource, EditableTransactionKind, RecurringRule, Transaction } from "./domain";
 import { today } from "./domain";
 import { parseVoiceTransaction } from "./voice";
@@ -189,32 +189,36 @@ export function VoiceTransactionForm({
     <Modal title={transaction ? "Sửa giao dịch" : "Ghi giao dịch"} onClose={onClose}>
         
         {!transaction && (
-          <div className="voice-card" style={{ marginBottom: 12 }}>
+          <div className="voice-card">
             <div className="segmented">
-              <button className={!showSmsInput ? "selected" : ""} onClick={() => setShowSmsInput(false)}>
-                <Mic size={14} style={{ marginRight: 6 }} /> Giọng nói
+              <button type="button" className={!showSmsInput ? "selected" : ""} onClick={() => setShowSmsInput(false)}>
+                <Mic size={15} /> Giọng nói
               </button>
-              <button className={showSmsInput ? "selected" : ""} onClick={() => setShowSmsInput(true)}>
-                <ClipboardPaste size={14} style={{ marginRight: 6 }} /> Dán SMS
+              <button type="button" className={showSmsInput ? "selected" : ""} onClick={() => setShowSmsInput(true)}>
+                <ClipboardPaste size={15} /> Dán SMS
               </button>
             </div>
             
             {!showSmsInput ? (
-              <>
-                <button className={listening ? "voice-button recording" : "voice-button"} onClick={() => listening ? stopListening() : startListening()} style={{ marginTop: 12 }}>
-                  {listening ? <Square size={18} fill="currentColor" /> : <Mic size={20} />}
-                  {listening ? "Dừng và xử lý" : "Nói để ghi chép"}
+              <section className={listening ? "voice-capture recording" : "voice-capture"} aria-live="polite">
+                <div className="voice-capture-copy">
+                  <span className="voice-eyebrow"><Sparkles size={14} /> Nhập nhanh bằng giọng nói</span>
+                  <strong>{listening ? "Đang lắng nghe bạn" : "Nói một câu, Daily Money tự điền"}</strong>
+                  <small>{listening ? "Nói xong, chạm dừng để xử lý." : "Ví dụ: “Ăn tối 64 nghìn hôm nay”."}</small>
+                </div>
+                <button type="button" className="voice-button" onClick={() => listening ? stopListening() : startListening()} aria-label={listening ? "Dừng ghi âm và xử lý" : "Bắt đầu ghi bằng giọng nói"}>
+                  <span className="voice-button-icon">{listening ? <Square size={19} fill="currentColor" /> : <Mic size={23} />}</span>
+                  <span>{listening ? "Dừng & xử lý" : "Bấm để nói"}</span>
                 </button>
-                {voiceStatus && <small className="voice-status">{voiceStatus}</small>}
+                {voiceStatus && <p className="voice-status">{voiceStatus}</p>}
                 {voiceError && <p className="form-error">{voiceError}</p>}
-              </>
+              </section>
             ) : (
-              <div style={{ marginTop: 12 }}>
+              <div className="sms-capture">
                 <textarea 
                   placeholder="Dán tin nhắn trừ tiền từ ngân hàng vào đây..." 
                   value={pastedSms} 
                   onChange={e => setPastedSms(e.target.value)}
-                  style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid var(--border)", minHeight: 60, marginBottom: 8 }}
                 />
                 <button className="primary full" onClick={handleSmsPaste} disabled={!pastedSms}>
                   Trích xuất dữ liệu

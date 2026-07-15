@@ -598,6 +598,42 @@ button:focus-visible, a:focus-visible {
   color: var(--brand-primary);
   box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
 }
+.segmented button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.voice-card {
+  margin-bottom: 16px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--brand-primary) 15%, var(--border));
+  border-radius: calc(var(--radius-lg) + 2px);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--brand-primary) 7%, var(--bg-card)), var(--bg-card));
+}
+.voice-capture { padding: 16px 13px 12px; text-align: center; }
+.voice-capture-copy { display: grid; gap: 5px; justify-items: center; }
+.voice-eyebrow { display: inline-flex; align-items: center; gap: 5px; color: var(--brand-primary); font-size: 11px; font-weight: 800; letter-spacing: .035em; text-transform: uppercase; }
+.voice-capture strong { font-size: 16px; color: var(--text-main); }
+.voice-capture-copy small { color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+.voice-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: min(100%, 300px);
+  min-height: 50px;
+  margin-top: 14px;
+  padding: 8px 18px 8px 9px;
+  border-radius: 999px;
+  background: var(--brand-primary);
+  color: white;
+  font-weight: 800;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--brand-primary) 28%, transparent);
+}
+.voice-button-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,.18); }
+.voice-capture.recording .voice-button { background: var(--danger); box-shadow: 0 8px 18px color-mix(in srgb, var(--danger) 28%, transparent); }
+.voice-capture.recording .voice-button-icon { animation: voice-pulse 1.4s ease-out infinite; }
+@keyframes voice-pulse { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,.55); } 75%, 100% { box-shadow: 0 0 0 9px rgba(255,255,255,0); } }
+.voice-status { margin: 12px 0 0; padding: 9px 10px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--brand-primary) 8%, var(--bg-card)); color: var(--text-muted); font-size: 12px; line-height: 1.45; text-align: left; }
+.voice-card .form-error { margin: 9px 4px 0; }
+.sms-capture { margin: 12px 7px 7px; }
+.sms-capture textarea { width: 100%; min-height: 76px; margin-bottom: 8px; padding: 11px; border: 1px solid var(--border); border-radius: var(--radius-sm); resize: vertical; }
 
 .plan-card h3 {
   margin: 10px 0 0;
