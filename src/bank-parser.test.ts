@@ -31,4 +31,12 @@ describe("bank SMS parser", () => {
   it("uses the largest formatted number when a currency marker is absent", () => {
     expect(parseBankSms("So du 1.250.000, giao dich 64.000", categories).amount).toBe(1_250_000);
   });
+
+  it("does not silently use the first category for an unknown merchant", () => {
+    const categoriesWithOther: Category[] = [
+      { id: "health", kind: "expense", name: "Sức khỏe", icon: "", color: "", archived: false, builtIn: true, createdAt: "" },
+      { id: "other", kind: "expense", name: "Khác", icon: "", color: "", archived: false, builtIn: true, createdAt: "" }
+    ];
+    expect(parseBankSms("TK -50.000 VND 14/07. ND: CUA HANG ABC", categoriesWithOther)).toMatchObject({ categoryId: "other", categoryMatched: false });
+  });
 });

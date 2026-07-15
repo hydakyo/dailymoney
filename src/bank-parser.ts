@@ -1,10 +1,7 @@
 import type { Category, Transaction } from "./domain";
+import { inferCategory, normalizeCategoryText } from "./category-classifier";
 
-const normalizeVietnamese = (value: string) => value
-  .toLocaleLowerCase("vi-VN")
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
-  .replace(/đ/g, "d");
+const normalizeVietnamese = normalizeCategoryText;
 
 function dateFromSms(text: string) {
   const fallback = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
@@ -20,13 +17,12 @@ function dateFromSms(text: string) {
   return candidate.toISOString().slice(0, 10);
 }
 
-export const NLP_CATEGORY_RULES = [
-  { keywords: ["grab", "be ", "gojek", "xanh sm"], categoryLike: "Di chuyển" },
-  { keywords: ["shopee", "lazada", "tiki", "tiktok shop"], categoryLike: "Mua sắm" },
-  { keywords: ["dien", "nuoc", "internet", "wifi"], categoryLike: "Nhà ở" }
-];
+export type BankSmsParseResult = Pick<Transaction, "kind" | "amount" | "categoryId" | "date" | "note"> & {
+  categoryMatched: boolean;
+  categoryConfidence: "high" | "low" | "none";
+};
 
-export function parseBankSms(text: string, categories: Category[]): Partial<Pick<Transaction, "kind" | "amount" | "categoryId" | "date" | "note">> {
+export function parseBankSms(text: string, categories: Category[]): BankSmsParseResult {
   // Common SMS formats in Vietnam:
   // VCB: SD TK 0123... -50,000VND luc 14:00 14/07/2026. ND: thanh toan tien dien.
   // TCB: TK 1903... GD: +1,000,000VND 14/07. ND: NGUYEN VAN A chuyen tien.
@@ -39,12 +35,14 @@ export function parseBankSms(text: string, categories: Category[]): Partial<Pick
 
   const normalized = normalizeVietnamese(text).replace(/vnd/g, "vnd");
 
-  // Detect Kind
-  if (normalized.includes("nhan") || normalized.includes("cong") || normalized.includes("+") || normalized.includes("ban duoc")) {
+  // A signed bank amount is more reliable than wording in a merchant note.
+  const signedAmount = text.match(/([+-])\s*\d/)?.[1];
+  if (signedAmount === "+") {
     kind = "income";
-  }
-  if (normalized.includes("tru") || normalized.includes("thanh toan") || normalized.includes("-")) {
+  } else if (signedAmount === "-" || normalized.includes("tru") || normalized.includes("thanh toan")) {
     kind = "expense";
+  } else if (/(^|\s)(nhan|cong)(\s|$)|ban duoc|hoan tien/.test(normalized)) {
+    kind = "income";
   }
 
   // Detect Amount
@@ -69,33 +67,7 @@ export function parseBankSms(text: string, categories: Category[]): Partial<Pick
     note = text.substring(0, 50) + (text.length > 50 ? "..." : ""); // fallback
   }
 
-  // Category matching
-  let categoryId = "";
-  const expenseCategories = categories.filter(c => c.kind === kind && !c.archived);
-  
-  if (note) {
-    const noteLower = note.toLocaleLowerCase("vi-VN");
-    const normalizedNote = normalizeVietnamese(note);
-    for (const cat of expenseCategories) {
-      if (noteLower.includes(cat.name.toLowerCase())) {
-        categoryId = cat.id;
-        break;
-      }
-    }
-    // Simple fallbacks using the rules engine
-    if (!categoryId) {
-      for (const rule of NLP_CATEGORY_RULES) {
-        if (rule.keywords.some(kw => normalizedNote.includes(kw))) {
-          categoryId = expenseCategories.find(c => c.name.includes(rule.categoryLike))?.id || "";
-          if (categoryId) break;
-        }
-      }
-    }
-  }
+  const category = inferCategory(note || text, kind, categories);
 
-  if (!categoryId) {
-    categoryId = expenseCategories[0]?.id ?? "";
-  }
-
-  return { kind, amount, note, date, categoryId };
+  return { kind, amount, note, date, categoryId: category.categoryId, categoryMatched: category.matched, categoryConfidence: category.confidence };
 }

@@ -24,6 +24,10 @@ describe("voice transaction parser", () => {
     expect(parseVoiceTransaction("Nhận lương 12 triệu", categories)).toMatchObject({ kind: "income", amount: 12_000_000, categoryId: "salary" });
   });
 
+  it("recognizes a plain received amount as income", () => {
+    expect(parseVoiceTransaction("Nhận 500 nghìn", categories)).toMatchObject({ kind: "income" });
+  });
+
   it("does not mistake a spoken day for a formatted VND amount", () => {
     expect(parseVoiceTransaction("Ngày 13 tháng 7 ăn tối 64.000", categories)).toMatchObject({ amount: 64_000, categoryId: "food", date: "2026-07-13", note: "ăn tối" });
   });
@@ -38,5 +42,22 @@ describe("voice transaction parser", () => {
 
   it("uses yesterday in the Vietnam timezone", () => {
     expect(parseVoiceTransaction("Hôm qua cà phê 35 nghìn", categories)).toMatchObject({ amount: 35_000, categoryId: "food", date: "2026-07-13" });
+  });
+
+  it("matches every active custom category instead of a fixed built-in subset", () => {
+    const customCategories: Category[] = [
+      { id: "health", kind: "expense", name: "Sức khỏe", icon: "", color: "", archived: false, builtIn: true, createdAt: "" },
+      { id: "coffee", kind: "expense", name: "Cà phê", icon: "", color: "", archived: false, builtIn: false, createdAt: "" },
+      { id: "other", kind: "expense", name: "Khác", icon: "", color: "", archived: false, builtIn: true, createdAt: "" }
+    ];
+    expect(parseVoiceTransaction("Uống cà phê 35 nghìn", customCategories)).toMatchObject({ categoryId: "coffee", categoryMatched: true });
+  });
+
+  it("falls back only to the explicit other category when it cannot classify", () => {
+    const categoriesWithOther: Category[] = [
+      { id: "health", kind: "expense", name: "Sức khỏe", icon: "", color: "", archived: false, builtIn: true, createdAt: "" },
+      { id: "other", kind: "expense", name: "Khác", icon: "", color: "", archived: false, builtIn: true, createdAt: "" }
+    ];
+    expect(parseVoiceTransaction("Mua đồ lặt vặt 25 nghìn", categoriesWithOther)).toMatchObject({ categoryId: "other", categoryMatched: false });
   });
 });

@@ -44,10 +44,11 @@ describe("TransactionForm Component", () => {
     // Check defaults
     expect(screen.getByText("Ghi giao dịch")).toBeDefined();
     
-    // Test selecting category
+    // Every available category is present, but nothing is silently selected.
     const categorySelect = screen.getByRole("combobox");
     expect(categorySelect).toBeDefined();
     expect(screen.getByText("Ăn uống")).toBeDefined();
+    expect((categorySelect as HTMLSelectElement).value).toBe("");
 
     // Check submit disabled when amount empty
     const submitBtn = screen.getByText("Lưu giao dịch");
@@ -64,8 +65,10 @@ describe("TransactionForm Component", () => {
     const amountInput = inputs[0]; 
     fireEvent.change(amountInput, { target: { value: "50000" } });
 
-    // Submit should be enabled now
+    // A category must be explicit rather than silently using the first option.
     const submitBtn = screen.getByText("Lưu giao dịch");
+    expect((submitBtn as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "cat1" } });
     expect((submitBtn as HTMLButtonElement).disabled).toBe(false);
 
     await act(async () => { fireEvent.click(submitBtn); });

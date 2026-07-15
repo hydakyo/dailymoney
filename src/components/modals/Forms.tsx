@@ -45,9 +45,7 @@ export function TransactionForm({
   );
   
   React.useEffect(() => {
-    if (!relevant.some(category => category.id === categoryId)) {
-      setCategoryId(relevant[0]?.id ?? "");
-    }
+    if (categoryId && !relevant.some(category => category.id === categoryId)) setCategoryId("");
   }, [categoryId, relevant]);
 
   const submit = async () => {
@@ -78,6 +76,7 @@ export function TransactionForm({
       <label className="field">
         <span>Danh mục</span>
         <select value={categoryId} onChange={event => setCategoryId(event.target.value)}>
+          <option value="" disabled>Chọn danh mục</option>
           {relevant.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
         </select>
       </label>

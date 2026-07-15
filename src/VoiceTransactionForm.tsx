@@ -59,9 +59,7 @@ export function VoiceTransactionForm({
   const relevant = useMemo(() => categories.filter(category => category.kind === kind && !category.archived), [categories, kind]);
 
   useEffect(() => {
-    if (!relevant.some(category => category.id === categoryId)) {
-      setCategoryId(relevant[0]?.id ?? "");
-    }
+    if (categoryId && !relevant.some(category => category.id === categoryId)) setCategoryId("");
   }, [categoryId, relevant, kind]);
 
   useEffect(() => () => recognitionRef.current?.abort(), []);
@@ -73,7 +71,9 @@ export function VoiceTransactionForm({
     setCategoryId(parsed.categoryId);
     setDate(parsed.date);
     setNote(parsed.note ?? "");
-    setVoiceStatus(`Đã nghe: “${text}”`);
+    setVoiceStatus(parsed.categoryMatched
+      ? `Đã nhận diện ${parsed.kind === "income" ? "khoản thu" : "khoản chi"} và danh mục. “${text}”`
+      : `Đã nghe: “${text}”. Chưa rõ danh mục, tạm chọn “Khác” để bạn kiểm tra.`);
   };
 
   const startListening = () => {
@@ -132,6 +132,9 @@ export function VoiceTransactionForm({
     if (parsed.categoryId) setCategoryId(parsed.categoryId);
     if (parsed.date) setDate(parsed.date);
     if (parsed.note) setNote(parsed.note);
+    setVoiceStatus(parsed.categoryMatched
+      ? "Đã nhận diện nội dung SMS và danh mục."
+      : "Đã đọc SMS nhưng chưa rõ danh mục, tạm chọn “Khác” để bạn kiểm tra.");
     setShowSmsInput(false);
     setPastedSms("");
   };
@@ -206,6 +209,7 @@ export function VoiceTransactionForm({
         <label className="field">
           <span>Danh mục</span>
           <select value={categoryId} onChange={event => setCategoryId(event.target.value)}>
+            <option value="" disabled>Chọn danh mục</option>
             {relevant.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>
         </label>
